@@ -1,168 +1,127 @@
-# DigiByte Wallet Core — Architecture
+# DigiByte Wallet Core Architecture
+
+Last refreshed: 2026-05-21
+Compatibility target: DigiByte Core `v8.26.2`
 
 ## Executive Summary
 
-**digibytewallet-core** is a pure C library implementing SPV (Simplified Payment Verification) functionality for the DigiByte blockchain. Forked from [breadwallet-core](https://github.com/breadwallet/breadwallet-core), it provides all cryptographic primitives, transaction handling, peer-to-peer networking, and wallet management needed by the DigiByte mobile wallets (iOS and Android).
+`digibytewallet-core` is a compact C SPV wallet library derived from breadwallet-core. It is embedded by the mobile wallets through Swift/Clang modules on iOS and JNI/CMake on Android. It is not a DigiByte Core full node: it has no UTXO set, RPC server, mempool, compact block filter index, descriptor wallet, Taproot wallet, or DigiDollar logic.
 
-The library is designed to be embedded directly into platform-specific apps via Swift module maps (iOS) or JNI bridges (Android), with zero external dependencies beyond the bundled `secp256k1` elliptic curve library.
+The library preserves the original mobile SPV model: BIP39 mnemonic seed, breadwallet-style BIP32 derivation, legacy address/transaction creation, BIP37 bloom filters, merkleblock verification, and direct DigiByte P2P peer connections.
 
-## System Overview
+## System Boundaries
 
 ```
-┌─────────────────────────────────────────────────────┐
-│              Mobile App (iOS / Android)              │
-│         Swift/ObjC bridge  or  JNI bridge           │
-└──────────────────────┬──────────────────────────────┘
-                       │ C API
-┌──────────────────────▼──────────────────────────────┐
-│                  digibytewallet-core                 │
-│                                                     │
-│  ┌─────────────┐  ┌──────────────┐  ┌────────────┐ │
-│  │  BRWallet    │  │ BRPeerManager│  │ BRPayment  │ │
-│  │  (UTXO mgmt, │  │ (SPV sync,   │  │ Protocol   │ │
-│  │   balances,  │  │  block relay, │  │ (BIP70/75) │ │
-│  │   tx create) │  │  peer disco.) │  │            │ │
-│  └──────┬───────┘  └──────┬───────┘  └────────────┘ │
-│         │                 │                          │
-│  ┌──────▼─────────────────▼───────────────────────┐ │
-│  │          Core Primitives                        │ │
-│  │  BRTransaction  BRMerkleBlock  BRBloomFilter    │ │
-│  │  BRAddress      BRKey          BRCrypto         │ │
-│  │  BRBase58       BRBIP32Seq     BRBIP39Mnemonic  │ │
-│  │  BRBIP38Key     BRInt          BRSet  BRArray   │ │
-│  └──────────────────────┬─────────────────────────┘ │
-│                         │                            │
-│  ┌──────────────────────▼─────────────────────────┐ │
-│  │              secp256k1 (libsecp256k1)           │ │
-│  │    Elliptic curve operations, ECDSA signing     │ │
-│  └────────────────────────────────────────────────┘ │
-└─────────────────────────────────────────────────────┘
-              │
-              ▼ TCP/IP
-    DigiByte P2P Network (port 12024)
+host mobile app
+  |
+  | C API + callbacks
+  v
+BRWallet <-> BRPeerManager <-> BRPeer <-> DigiByte P2P network
+  |              |
+  |              +-- DNS/fixed peer discovery, headers, merkleblock, tx relay
+  |
+  +-- BRTransaction, BRAddress, BRKey, BRBIP32Sequence, BRBIP39Mnemonic
 ```
+
+The host application owns secure storage, SQLite persistence, UI, app lifecycle, reachability checks, fee/rate APIs, and platform logging. The C core owns deterministic keys, address/script handling, transaction serialization/signing, peer protocol messages, BIP37 filters, checkpoint storage, and wallet accounting.
 
 ## Directory Structure
 
 ```
 digibytewallet-core/
-├── BR*.h / BR*.c          # Core library (16 modules, 32 files)
-├── BRInt.h                # Large integer types (UInt128/160/256/512)
-├── BRArray.h              # Growable array macros (header-only)
-├── BRSet.{h,c}            # Hash set data structure
-├── BRCrypto.{h,c}         # SHA1/256/384/512, RIPEMD160, HMAC, PBKDF2, etc.
-├── BRBase58.{h,c}         # Base58 / Base58Check encoding
-├── BRKey.{h,c}            # EC key operations (secp256k1 wrapper)
-├── BRBIP32Sequence.{h,c}  # HD key derivation (BIP32)
-├── BRBIP38Key.{h,c}       # Encrypted private keys (BIP38)
-├── BRBIP39Mnemonic.{h,c}  # Mnemonic seed phrases (BIP39)
-├── BRBIP39WordsEn.h       # English BIP39 word list (2048 words)
-├── BRAddress.{h,c}        # Address encoding/decoding, script parsing
-├── BRTransaction.{h,c}    # Transaction creation, serialization, signing
-├── BRBloomFilter.{h,c}    # Bloom filters (BIP37)
-├── BRMerkleBlock.{h,c}    # Block headers + merkle proof validation
-├── BRPeer.{h,c}           # P2P peer connection and message handling
-├── BRPeerManager.{h,c}    # SPV sync, peer discovery, block chain mgmt
-├── BRWallet.{h,c}         # Wallet: UTXO set, balance, tx creation
-├── BRPaymentProtocol.{h,c}# BIP70/BIP75 payment protocol
-├── module.modulemap        # Swift/Clang module definition (BRCore)
-├── test.c                  # Comprehensive test suite
-├── secp256k1/              # Bundled libsecp256k1 (git submodule)
-│   ├── src/                # EC math, ECDSA, field arithmetic
-│   ├── include/            # Public API headers
-│   ├── contrib/            # Lax DER parsing helpers
-│   └── src/modules/        # ECDH and recovery modules
-├── LICENSE                 # MIT License
-└── README.md               # Brief description
+├── BRAddress.*           # Base58 address/script handling
+├── BRArray.h             # Header-only growable array macros
+├── BRBase58.*            # Base58/Base58Check
+├── BRBIP32Sequence.*     # HD derivation, m/0H/chain/index
+├── BRBIP38Key.*          # Encrypted private keys
+├── BRBIP39Mnemonic.*     # Mnemonic validation and seed derivation
+├── BRBIP39WordsEn.h      # English BIP39 word list
+├── BRBloomFilter.*       # BIP37 bloom filters
+├── BRCrypto.*            # Hashes, HMAC, PBKDF2, scrypt, ChaCha/Poly1305
+├── BRInt.h               # UInt128/160/256/512 and endian helpers
+├── BRKey.*               # secp256k1 key, WIF, ECDSA, compact signatures
+├── BRMerkleBlock.*       # Block header and merkle proof handling
+├── BRPaymentProtocol.*   # BIP70/BIP75-era payment protocol
+├── BRPeer.*              # One P2P connection
+├── BRPeerManager.*       # SPV sync, peers, checkpoints, bloom filters
+├── BRSet.*               # Generic hash set
+├── BRTransaction.*       # Legacy tx parse/serialize/sign
+├── BRWallet.*            # UTXO accounting and tx creation
+├── module.modulemap      # Clang/Swift module definition
+├── test.c                # Standalone C test harness
+└── secp256k1/            # Bundled secp256k1 source
 ```
 
 ## Key Components
 
-### Cryptographic Primitives (`BRCrypto`)
-Hash functions (SHA-1/224/256/384/512, RIPEMD-160, MD5), HMAC-SHA256/512, PBKDF2, DRBGs, and AES-ECB. All implemented in pure C with no external dependencies.
+### Wallet
 
-### Key Management (`BRKey`, `BRBIP32Sequence`, `BRBIP38Key`, `BRBIP39Mnemonic`)
-- **BRKey**: Wraps secp256k1 for EC key pairs — sign, verify, ECDH, compact signatures, WIF import/export
-- **BRBIP32Sequence**: HD wallet key derivation from master seed. Default path `m/0H/chain/index`
-- **BRBIP38Key**: Passphrase-encrypted private keys with EC multiply mode support
-- **BRBIP39Mnemonic**: Mnemonic phrase encode/decode/verify with PBKDF2-based seed derivation
+`BRWallet` tracks wallet transactions, UTXOs, balances, internal/external address indexes, fees, and callbacks. It derives keys from the seed only when signing and zeroes temporary key arrays after use.
 
-### Address & Encoding (`BRAddress`, `BRBase58`)
-- DigiByte pubkey address prefix: **30** (vs Bitcoin's 0), script prefix: **5**
-- Varint encoding, script parsing (P2PKH, P2SH), output script generation
-- Base58 and Base58Check encode/decode
+### Keys And Mnemonics
 
-### Transaction Handling (`BRTransaction`)
-- UTXO-based inputs/outputs with full serialization/deserialization
-- Transaction signing with SIGHASH_ALL
-- Fee estimation: `TX_FEE_PER_KB = 5000`, min output `100000001` satoshis
-- Max tx size 100KB, lock time support
+`BRBIP39Mnemonic` implements standard BIP39 phrase checks and PBKDF2-HMAC-SHA512 seed derivation. `BRBIP32Sequence` uses the legacy DigiByte mobile path `m/0H/chain/index` with seed key string `"DigiByte seed"`. This is intentionally not BIP44 `m/44'/20'/...`; changing it would break existing wallet recovery.
 
-### Wallet (`BRWallet`)
-- UTXO management with efficient hash-based lookups
-- Balance calculation, fee-per-KB configuration (default 10000000)
-- Address generation with gap limit (external: 10, internal: 5)
-- Callback-based notifications for balance changes, tx updates
+### Transactions
 
-### SPV Networking (`BRPeer`, `BRPeerManager`)
-- **BRPeer**: TCP socket connection to DigiByte nodes (port 12024), full message protocol (version, verack, inv, tx, headers, getblocks, getdata, merkleblock, ping/pong, etc.)
-- **BRPeerManager**: Manages up to 3 simultaneous peer connections, handles blockchain sync, block validation, bloom filter management, transaction broadcast and relay
+`BRTransaction` supports legacy non-witness transaction serialization and ECDSA `SIGHASH_ALL` signing. It does not create SegWit witnesses, Taproot key/script spends, Schnorr signatures, PSBTs, descriptors, or DigiDollar transactions.
 
-### Block Validation (`BRMerkleBlock`, `BRBloomFilter`)
-- Merkle block parsing with proof-of-inclusion verification
-- Separate `blockHash` and `powHash` fields (DigiByte multi-algo support)
-- Bloom filters (BIP37) for SPV transaction filtering
+### SPV Networking
 
-### Payment Protocol (`BRPaymentProtocol`)
-- BIP70 payment requests and payment/payment-ack messages
-- BIP75 encrypted payment protocol with x509 certificate validation
+`BRPeer` speaks the DigiByte P2P protocol over TCP. `BRPeerManager` discovers peers, filters for full nodes with bloom support, loads BIP37 filters, syncs headers/merkleblocks, publishes transactions, and persists peers/blocks through host callbacks.
 
-### Data Structures (`BRSet`, `BRArray`, `BRInt`)
-- **BRSet**: Generic hash set with function-pointer-based hash/equality
-- **BRArray**: Macro-based growable arrays with type checking
-- **BRInt**: Union types for UInt128, UInt160, UInt256, UInt512 with endian conversion helpers
+### Merkle Blocks And PoW
+
+`BRMerkleBlock` parses headers and merkleblock payloads, validates merkle roots, timestamp drift, compact target range, and `powHash <= target`. The historical implementation is not a complete modern DigiByte multi-algo verifier; mobile SPV security depends on checkpoints, peer diversity, and merkle inclusion rather than full validation.
+
+## DigiByte Core v8.26.2 Compatibility
+
+| Surface | v8.26.2 value | wallet-core status |
+| --- | --- | --- |
+| Mainnet message start | `fa c3 b6 da` | Matches |
+| Testnet message start | `fd c8 bd dd` | Corrected |
+| Mainnet P2P port | `12024` | Matches |
+| Testnet P2P port | `12026` | Corrected |
+| Protocol version | `70019` | Corrected |
+| Minimum peer protocol | `70017` | Corrected |
+| Mainnet P2PKH | `30` | Matches |
+| Mainnet legacy P2SH-old | `5` | Matches |
+| Testnet P2PKH/P2SH | `126` / `140` | Corrected |
+| Mainnet/testnet WIF | `128` / `254` | Corrected for testnet |
+| DigiByte max money | `21,000,000,000 DGB` | Corrected |
+| DNS seeds | Core has several maintained seeds | This standalone repo has weak/old seed coverage |
+| Bech32/SegWit/Taproot | `dgb`, `dgbt`, Taproot active | Not implemented in this standalone core |
+| BIP37 | Supported only by peers advertising bloom | Core uses BIP37 and filters for bloom peers |
+
+The current public stable compatibility target is `v8.26.2`. Newer `v9.26.0-rc*` releases are DigiDollar testnet/release-candidate work and are intentionally not used as this wallet's protocol baseline.
 
 ## Data Flow
 
-```
-Mnemonic Phrase
-    │ BRBIP39DeriveKey()
-    ▼
-512-bit Seed
-    │ BRBIP32MasterPubKey()
-    ▼
-Master Public Key ──► BRWallet (address generation, UTXO tracking)
-                          │
-                          │ BRPeerManager (SPV sync)
-                          ▼
-              DigiByte P2P Network
-              ├── getblocks / getheaders
-              ├── merkleblock (filtered blocks)
-              ├── tx (broadcast / receive)
-              └── bloom filter updates
-```
+1. The host app obtains or creates a BIP39 phrase and stores it securely.
+2. `BRBIP39DeriveKey()` derives the seed.
+3. `BRBIP32MasterPubKey()` derives the master public key for watch-only address generation.
+4. `BRWallet` derives external/internal addresses and tracks known transactions.
+5. The host app rehydrates transactions, peers, and merkle blocks from SQLite.
+6. `BRPeerManager` selects a checkpoint/start block, discovers peers, and opens P2P connections.
+7. Bloom filters are loaded; matching `merkleblock` and `tx` messages update wallet state.
+8. Outgoing transactions are signed by `BRWalletSignTransaction()` and published through connected peers.
 
-## Configuration
+## Build Notes
 
-### Network Parameters (compile-time)
-| Parameter | Mainnet | Testnet |
-|-----------|---------|---------|
-| Pubkey prefix | 30 | 111 |
-| Script prefix | 5 | 196 |
-| Standard port | 12024 | 12024 |
-| Magic bytes | Set in BRPeer.c | — |
+The standalone repository can be compiled as plain C, but the legacy `test.c` harness still contains stale breadwallet/DigiByte fixtures and is not a reliable release gate without fixture cleanup. The iOS and Android repos embed their own detached copies of this core; those embedded copies must be audited separately before mobile release.
 
-### Build Integration
-- **iOS**: Import via `module.modulemap` as `BRCore` Swift module. Include `secp256k1/src/basic-config.h` and `secp256k1/src/secp256k1.c` as textual headers.
-- **Android**: Compile as native library via NDK, bridge through JNI.
-- **Standalone test**: Compile `test.c` with all `.c` files and link.
+## Design Patterns
 
-## Key Technical Decisions
+- Flat C API with opaque structs for wallet and peer-manager ownership.
+- Callback-driven persistence and UI notifications.
+- Header-only generic containers for portability.
+- Compile-time network selection through `BITCOIN_TESTNET`.
+- No background threads are hidden from the host; cleanup callbacks are provided for platform runtimes.
 
-1. **Pure C with no dependencies** — Maximum portability across iOS, Android, and embedded targets
-2. **Header-only data structures** — `BRArray` and `BRInt` are entirely in headers for zero-cost abstraction
-3. **Callback-based architecture** — Wallet, PeerManager, and Peer all use function-pointer callbacks, allowing platform-specific integration without modifying core code
-4. **Separate powHash field** — DigiByte's multi-algorithm PoW requires distinct block hash and proof-of-work hash (unlike Bitcoin's single hash)
-5. **Bundled secp256k1** — Included as git submodule to avoid external dependency management
-6. **Thread-safety via platform callbacks** — `threadCleanup` callback lets platforms handle thread lifecycle
-7. **Cross-platform logging** — Compile-time macros route `digi_log()` to NSLog (iOS), Android log, or printf
+## Known Risks
+
+- The standalone core lacks current Bech32/SegWit/Taproot wallet support.
+- Multi-algo PoW and DigiByte difficulty validation are incomplete for a modern adversarial SPV threat model.
+- BIP37 peer availability is limited because many modern nodes disable bloom filters by default.
+- DNS seeds and checkpoints are much weaker than DigiByte Core `v8.26.2`.
+- The standalone repo is not automatically the exact core compiled by iOS/Android; mobile embedded copies must stay synchronized deliberately.
