@@ -79,6 +79,11 @@ static const struct {
     uint32_t target;
 } checkpoint_array[] = {
         { 0, "7497ea1b465eb39f1c8f507bc877078fe016d6fcb6dfad3a64c98dcc6e1e8496", 1389388394, 0x1e0ffff0 },
+        { 9999936, "bef44cbe5697ba5bec60d77d7d43bbf65501200ee6ac85eff1126f1b57838a31", 1577041456, 0x1a08c5fb },
+        { 14999904, "20f5c303247a0da0beb258f360440e08a6a347b60f1480b8eb04051f7001eed2", 1651768611, 0x1a013961 },
+        { 19999872, "2333d05068585456febf870f15dabbd176ff322c8e8550eba099c886b8307dc3", 1726551658, 0x1a081ddd },
+        { 21999888, "c739f88f948b7adf5f1796b93fcf4aabd88195bdd77abb94a365fd58763df851", 1756458504, 0x1a077fe7 },
+        { 22999968, "00000000000000032316bb4097d67a29122f4fd0bf24bacc9ec294ad1779a888", 1771423769, 0x1906a76c },
         //   {     0, "852c475c605e1f20bbe60219c811abaeef08bf0d4ff87eef59200fd7a7567fa7", 1413145109, 0x1b336ce6 },
         // Sitt 2016-02-18 Use Checkpoint from the First day of digiwallet fork (from breadWallet)
         //{  145000, "f8d650dda836d5e3809b928b8523f050891c3bb9fa2c201bb04824a8a2fe7df6", 1409596362, 0x1c01f271},
@@ -88,7 +93,14 @@ static const struct {
 };
 
 static const char *dns_seeds[] = {
-        "seed.digibyte.io."
+        "seed.digibyte.io.",
+        "seed.diginode.tools.",
+        "seed.digibyteblockchain.org.",
+        "eu.digibyteseed.com.",
+        "seed.digibyte.link.",
+        "seed.quakeguy.com.",
+        "seed.aroundtheblock.app.",
+        "seed.digibyte.services."
 };
 
 #endif
@@ -1566,7 +1578,7 @@ BRPeerManager *BRPeerManagerNew(BRWallet *wallet, uint32_t earliestKeyTime, BRMe
 
     while (block) {
         BRSetAdd(manager->blocks, block);
-        manager->lastBlock = block;
+        if (!manager->lastBlock || block->height > manager->lastBlock->height) manager->lastBlock = block;
         orphan.prevBlock = block->prevBlock;
         BRSetRemove(manager->orphans, &orphan);
         orphan.prevBlock = block->blockHash;
