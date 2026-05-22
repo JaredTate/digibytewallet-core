@@ -36,6 +36,7 @@
 #include "BRPeer.h"
 #include "BRPeerManager.h"
 #include "BRPaymentProtocol.h"
+#include "BRDigiDollar.h"
 #include "BRInt.h"
 #include "BRArray.h"
 #include "BRSet.h"
@@ -1030,7 +1031,7 @@ int BRKeyTests()
     if (! BRAddressEq(&addr, "ms8fwvXzrCoyatnGFRaLbepSqwGRxVJQF1"))
         r = 0, fprintf(stderr, "***FAILED*** %s: BRKeySetPrivKey() test 1\n", __func__);
 #else
-    if (! BRAddressEq(&addr, "1CciesT23BNionJeXrbxmjc7ywfiyM4oLW"))
+    if (! BRAddressEq(&addr, "DGkpC8PfLbH1LnVFGSbXKVmis5Q2MXczCg"))
         r = 0, fprintf(stderr, "***FAILED*** %s: BRKeySetPrivKey() test 1\n", __func__);
 #endif
 
@@ -1045,7 +1046,7 @@ int BRKeyTests()
     if (! BRAddressEq(&addr, "mrhzp5mstA4Midx85EeCjuaUAAGANMFmRP"))
         r = 0, fprintf(stderr, "***FAILED*** %s: BRKeySetPrivKey() test 2\n", __func__);
 #else
-    if (! BRAddressEq(&addr, "1CC3X2gu58d6wXUWMffpuzN9JAfTUWu4Kj"))
+    if (! BRAddressEq(&addr, "DGL94HdYNYXPUXf76FfPTkXkBJPknj4KqC"))
         r = 0, fprintf(stderr, "***FAILED*** %s: BRKeySetPrivKey() test 2\n", __func__);
 #endif
 
@@ -1057,7 +1058,7 @@ int BRKeyTests()
     BRKeySetPrivKey(&key, "5Kb8kLf9zgWQnogidDA76MzPL6TsZZY36hWXMssSzNydYXYB9KF");
     BRKeyAddress(&key, addr.s, sizeof(addr));
     printf("privKey:5Kb8kLf9zgWQnogidDA76MzPL6TsZZY36hWXMssSzNydYXYB9KF = %s\n", addr.s);
-    if (! BRAddressEq(&addr, "1CC3X2gu58d6wXUWMffpuzN9JAfTUWu4Kj"))
+    if (! BRAddressEq(&addr, "DGL94HdYNYXPUXf76FfPTkXkBJPknj4KqC"))
         r = 0, fprintf(stderr, "***FAILED*** %s: BRKeySetPrivKey() test 3\n", __func__);
 
     // uncompressed private key export
@@ -1075,7 +1076,7 @@ int BRKeyTests()
     BRKeySetPrivKey(&key, "KyvGbxRUoofdw3TNydWn2Z78dBHSy2odn1d3wXWN2o3SAtccFNJL");
     BRKeyAddress(&key, addr.s, sizeof(addr));
     printf("privKey:KyvGbxRUoofdw3TNydWn2Z78dBHSy2odn1d3wXWN2o3SAtccFNJL = %s\n", addr.s);
-    if (! BRAddressEq(&addr, "1JMsC6fCtYWkTjPPdDrYX3we2aBrewuEM3"))
+    if (! BRAddressEq(&addr, "DNVxjMbrBxR2zjZzMor74p7EuhvA3krFCt"))
         r = 0, fprintf(stderr, "***FAILED*** %s: BRKeySetPrivKey() test 4\n", __func__);
     
     // compressed private key export
@@ -1607,13 +1608,13 @@ int BRBIP32SequenceTests()
 
     BRBIP32PrivKey(&key, &seed, sizeof(seed), SEQUENCE_INTERNAL_CHAIN, 2 | 0x80000000);
     printf("000102030405060708090a0b0c0d0e0f/0H/1/2H prv = %s\n", u256_hex_encode(key.secret));
-    if (! UInt256Eq(key.secret, u256_hex_decode("cbce0d719ecf7431d88e6a89fa1483e02e35092af60c042b1df2ff59fa424dca")))
+    if (! UInt256Eq(key.secret, u256_hex_decode("9aa692472c0fb36044b1d826c7d99ddc2c01ae6a5c4793deb33dae3b3191a3cd")))
         r = 0, fprintf(stderr, "***FAILED*** %s: BRBIP32PrivKey() test 1\n", __func__);
     
     // test for correct zero padding of private keys
-    BRBIP32PrivKey(&key, &seed, sizeof(seed), SEQUENCE_EXTERNAL_CHAIN, 97);
-    printf("000102030405060708090a0b0c0d0e0f/0H/0/97 prv = %s\n", u256_hex_encode(key.secret));
-    if (! UInt256Eq(key.secret, u256_hex_decode("00136c1ad038f9a00871895322a487ed14f1cdc4d22ad351cfa1a0d235975dd7")))
+    BRBIP32PrivKey(&key, &seed, sizeof(seed), SEQUENCE_EXTERNAL_CHAIN, 90);
+    printf("000102030405060708090a0b0c0d0e0f/0H/0/90 prv = %s\n", u256_hex_encode(key.secret));
+    if (! UInt256Eq(key.secret, u256_hex_decode("00a4ac2d18b4596fb12d38223ee112b858ad7c80bf31833c12aa447e030d7dea")))
         r = 0, fprintf(stderr, "***FAILED*** %s: BRBIP32PrivKey() test 2\n", __func__);
     
     BRMasterPubKey mpk = BRBIP32MasterPubKey(&seed, sizeof(seed));
@@ -1633,9 +1634,9 @@ int BRBIP32SequenceTests()
     BRBIP32PubKey(pubKey, sizeof(pubKey), mpk, SEQUENCE_EXTERNAL_CHAIN, 0);
     printf("000102030405060708090a0b0c0d0e0f/0H/0/0 pub = %02x%s\n", pubKey[0],
            u256_hex_encode(*(UInt256 *)&pubKey[1]));
-    if (pubKey[0] != 0x02 ||
+    if (pubKey[0] != 0x03 ||
         ! UInt256Eq(*(UInt256 *)&pubKey[1],
-                    u256_hex_decode("7b6a7dd645507d775215a9035be06700e1ed8c541da9351b4bd14bd50ab61428")))
+                    u256_hex_decode("69026224349405a51dc5b093dae4d37fbd6d28ffac0527751fa5a9f928752f01")))
         r = 0, fprintf(stderr, "***FAILED*** %s: BRBIP32PubKey() test\n", __func__);
 
     UInt512 dk;
@@ -1645,13 +1646,134 @@ int BRBIP32SequenceTests()
                      "banner amused fringe fox insect roast aunt prefer hollow basic ladder", NULL);
     BRBIP32BitIDKey(&key, dk.u8, sizeof(dk), 0, "http://bitid.bitcoin.blue/callback");
     BRKeyAddress(&key, addr.s, sizeof(addr));
-    if (strncmp(addr.s, "1J34vj4wowwPYafbeibZGht3zy3qERoUM1", sizeof(addr)) != 0)
+    if (strncmp(addr.s, "DSFBMsXMiph22GAvPaqSKqnfm6n2ELUPMi", sizeof(addr)) != 0)
         r = 0, fprintf(stderr, "***FAILED*** %s: BRBIP32BitIDKey() test\n", __func__);
 
     // TODO: XXX test BRBIP32SerializeMasterPrivKey()
     // TODO: XXX test BRBIP32SerializeMasterPubKey()
 
     printf("                                    ");
+    return r;
+}
+
+int BRDigiDollarTests()
+{
+    int r = 1;
+    uint8_t outputKey[BR_DIGIDOLLAR_XONLY_KEY_LENGTH], decodedKey[BR_DIGIDOLLAR_XONLY_KEY_LENGTH];
+    uint8_t ownerKey[BR_DIGIDOLLAR_XONLY_KEY_LENGTH], script[128], p2tr[34];
+    char addr[80], corrupted[80], spaced[84];
+    BRDigiDollarNetwork network = BRDigiDollarMainNet;
+    BRDigiDollarOpReturn metadata;
+    size_t len, index = SIZE_MAX;
+    uint64_t amounts[] = { 1250, 2500, 100 };
+    BRTransaction *tx;
+
+    for (size_t i = 0; i < sizeof(outputKey); i++) {
+        outputKey[i] = (uint8_t)i;
+        ownerKey[i] = (uint8_t)(0xff - i);
+    }
+
+    if (BRDigiDollarMakeVersion(BRDigiDollarTxMint, 0) != 0x01000770)
+        r = 0, fprintf(stderr, "***FAILED*** %s: mint version\n", __func__);
+    if (BRDigiDollarMakeVersion(BRDigiDollarTxTransfer, 0x33) != 0x02330770)
+        r = 0, fprintf(stderr, "***FAILED*** %s: transfer flags version\n", __func__);
+    if (BRDigiDollarMakeVersion(BRDigiDollarTxRedeem, 0) != 0x03000770)
+        r = 0, fprintf(stderr, "***FAILED*** %s: redeem version\n", __func__);
+    if (BRDigiDollarTypeForVersion(0x01000770) != BRDigiDollarTxMint ||
+        BRDigiDollarTypeForVersion(0x02000770) != BRDigiDollarTxTransfer ||
+        BRDigiDollarTypeForVersion(0x03000770) != BRDigiDollarTxRedeem ||
+        BRDigiDollarTypeForVersion(0x04000770) != BRDigiDollarTxNone ||
+        BRDigiDollarTypeForVersion(0x00000002) != BRDigiDollarTxNone)
+        r = 0, fprintf(stderr, "***FAILED*** %s: version type parser\n", __func__);
+    if (BRDigiDollarFlagsForVersion(0x02330770) != 0x33)
+        r = 0, fprintf(stderr, "***FAILED*** %s: version flags parser\n", __func__);
+
+    len = BRDigiDollarAddressEncode(addr, sizeof(addr), BRDigiDollarMainNet, outputKey);
+    if (len == 0 || strcmp(addr, "DD1EtoDkrT4aJdAL7167x3tLP2fq42kCEaPVGhd8QfVtevfcNXTf") != 0)
+        r = 0, fprintf(stderr, "***FAILED*** %s: mainnet DD address encode\n", __func__);
+    if (!BRDigiDollarAddressDecode(decodedKey, &network, addr) ||
+        network != BRDigiDollarMainNet || memcmp(decodedKey, outputKey, sizeof(outputKey)) != 0)
+        r = 0, fprintf(stderr, "***FAILED*** %s: mainnet DD address decode\n", __func__);
+    if (!BRDigiDollarAddressIsValidForNetwork(addr, BRDigiDollarMainNet) ||
+        BRDigiDollarAddressIsValidForNetwork(addr, BRDigiDollarTestNet))
+        r = 0, fprintf(stderr, "***FAILED*** %s: mainnet DD network validation\n", __func__);
+
+    len = BRDigiDollarAddressEncode(addr, sizeof(addr), BRDigiDollarTestNet, outputKey);
+    if (len == 0 || strcmp(addr, "TD1Jiu7vYexR3NwqkoFreqNSn4G9Hyij99mMXQkqafotiyMEufdM") != 0)
+        r = 0, fprintf(stderr, "***FAILED*** %s: testnet TD address encode\n", __func__);
+    if (!BRDigiDollarAddressIsValidForNetwork(addr, BRDigiDollarTestNet))
+        r = 0, fprintf(stderr, "***FAILED*** %s: testnet TD network validation\n", __func__);
+
+    strcpy(corrupted, addr);
+    corrupted[strlen(corrupted) - 1] = (corrupted[strlen(corrupted) - 1] == '1') ? '2' : '1';
+    if (BRDigiDollarAddressIsValid(corrupted))
+        r = 0, fprintf(stderr, "***FAILED*** %s: corrupted DD address rejected\n", __func__);
+    snprintf(spaced, sizeof(spaced), " %s", addr);
+    if (BRDigiDollarAddressIsValid(spaced))
+        r = 0, fprintf(stderr, "***FAILED*** %s: whitespace DD address rejected\n", __func__);
+
+    if (BRDigiDollarLockTierCount() != 10 ||
+        BRDigiDollarLockTierBlocks(0) != 240 ||
+        BRDigiDollarLockTierBlocks(1) != 172800 ||
+        BRDigiDollarLockTierBlocks(9) != 21024000 ||
+        BRDigiDollarCollateralRatioForLockTier(0) != 1000 ||
+        BRDigiDollarCollateralRatioForLockTier(9) != 200 ||
+        BRDigiDollarLockTierForBlocks(1036800) != 3 ||
+        BRDigiDollarLockTierForBlocks(241) != -1)
+        r = 0, fprintf(stderr, "***FAILED*** %s: lock tier constants\n", __func__);
+
+    len = BRDigiDollarP2TRScriptPubKey(p2tr, sizeof(p2tr), outputKey);
+    BRTxOutput p2trOutput = BR_TX_OUTPUT_NONE;
+    BRTxOutputSetScript(&p2trOutput, p2tr, len);
+    if (len != 34 || p2tr[0] != OP_1 || p2tr[1] != 32 || memcmp(&p2tr[2], outputKey, sizeof(outputKey)) != 0 ||
+        !BRDigiDollarOutputIsP2TR(&p2trOutput))
+        r = 0, fprintf(stderr, "***FAILED*** %s: P2TR output script\n", __func__);
+    if (p2trOutput.script) array_free(p2trOutput.script);
+
+    len = BRDigiDollarBuildMintOpReturn(script, sizeof(script), 10000, 1234567, 2, ownerKey);
+    if (len == 0 || !BRDigiDollarParseOpReturn(&metadata, script, len) ||
+        metadata.type != BRDigiDollarTxMint || metadata.amountCount != 1 ||
+        metadata.amounts[0] != 10000 || metadata.lockHeight != 1234567 ||
+        metadata.lockTier != 2 || !metadata.hasOwnerXOnlyPubKey ||
+        memcmp(metadata.ownerXOnlyPubKey, ownerKey, sizeof(ownerKey)) != 0)
+        r = 0, fprintf(stderr, "***FAILED*** %s: mint OP_RETURN roundtrip\n", __func__);
+    script[len++] = OP_0;
+    if (BRDigiDollarParseOpReturn(&metadata, script, len))
+        r = 0, fprintf(stderr, "***FAILED*** %s: mint OP_RETURN trailing data rejected\n", __func__);
+
+    if (BRDigiDollarBuildMintOpReturn(script, sizeof(script), 9999, 1234567, 2, ownerKey) != 0 ||
+        BRDigiDollarBuildMintOpReturn(script, sizeof(script), 10000, 0, 2, ownerKey) != 0 ||
+        BRDigiDollarBuildMintOpReturn(script, sizeof(script), 10000, 1234567, 10, ownerKey) != 0)
+        r = 0, fprintf(stderr, "***FAILED*** %s: invalid mint builder inputs\n", __func__);
+
+    len = BRDigiDollarBuildTransferOpReturn(script, sizeof(script), amounts, sizeof(amounts)/sizeof(*amounts));
+    if (len == 0 || !BRDigiDollarParseOpReturn(&metadata, script, len) ||
+        metadata.type != BRDigiDollarTxTransfer || metadata.amountCount != 3 ||
+        metadata.amounts[0] != 1250 || metadata.amounts[1] != 2500 || metadata.amounts[2] != 100)
+        r = 0, fprintf(stderr, "***FAILED*** %s: transfer OP_RETURN roundtrip\n", __func__);
+    amounts[2] = 99;
+    if (BRDigiDollarBuildTransferOpReturn(script, sizeof(script), amounts, 3) != 0)
+        r = 0, fprintf(stderr, "***FAILED*** %s: transfer dust rejected\n", __func__);
+    amounts[2] = 100;
+
+    len = BRDigiDollarBuildRedeemOpReturn(script, sizeof(script), 750);
+    if (len == 0 || !BRDigiDollarParseOpReturn(&metadata, script, len) ||
+        metadata.type != BRDigiDollarTxRedeem || metadata.amountCount != 1 || metadata.amounts[0] != 750)
+        r = 0, fprintf(stderr, "***FAILED*** %s: redeem OP_RETURN roundtrip\n", __func__);
+    if (BRDigiDollarBuildRedeemOpReturn(script, sizeof(script), 0) != 0)
+        r = 0, fprintf(stderr, "***FAILED*** %s: zero-change redeem OP_RETURN omitted\n", __func__);
+
+    tx = BRTransactionNew();
+    tx->version = BRDigiDollarMakeVersion(BRDigiDollarTxTransfer, 0);
+    BRTransactionAddOutput(tx, 0, p2tr, sizeof(p2tr));
+    len = BRDigiDollarBuildTransferOpReturn(script, sizeof(script), amounts, 2);
+    BRTransactionAddOutput(tx, 0, script, len);
+    if (BRDigiDollarTypeForTx(tx) != BRDigiDollarTxTransfer ||
+        !BRDigiDollarTxFindOpReturn(tx, &metadata, &index) || index != 1 ||
+        metadata.type != BRDigiDollarTxTransfer || metadata.amountCount != 2)
+        r = 0, fprintf(stderr, "***FAILED*** %s: tx DD OP_RETURN lookup\n", __func__);
+    BRTransactionFree(tx);
+
     return r;
 }
 
@@ -1860,7 +1982,7 @@ int BRWalletTests()
     if (BRWalletBalance(w) != SATOSHIS)
         r = 0, fprintf(stderr, "***FAILED*** %s: BRWalletNew() test\n", __func__);
 
-    if (BRWalletAllAddrs(w, NULL, 0) != SEQUENCE_GAP_LIMIT_EXTERNAL + SEQUENCE_GAP_LIMIT_INTERNAL + 1)
+    if (BRWalletAllAddrs(w, NULL, 0) != (2 * (SEQUENCE_GAP_LIMIT_EXTERNAL + SEQUENCE_GAP_LIMIT_INTERNAL) + 1))
         r = 0, fprintf(stderr, "***FAILED*** %s: BRWalletAllAddrs() test\n", __func__);
     
     UInt256 hash = tx->txHash;
@@ -2576,6 +2698,8 @@ int BRRunTests()
     printf("%s\n", (BRBIP39MnemonicTests()) ? "success" : (fail++, "***FAIL***"));
     printf("BRBIP32SequenceTests...             ");
     printf("%s\n", (BRBIP32SequenceTests()) ? "success" : (fail++, "***FAIL***"));
+    printf("BRDigiDollarTests...                ");
+    printf("%s\n", (BRDigiDollarTests()) ? "success" : (fail++, "***FAIL***"));
     printf("BRTransactionTests...               ");
     printf("%s\n", (BRTransactionTests()) ? "success" : (fail++, "***FAIL***"));
     printf("BRWalletTests...                    ");

@@ -1129,7 +1129,7 @@ uint64_t BRWalletMaxOutputAmount(BRWallet *wallet)
     BRTransaction *tx;
     BRUTXO *o;
     uint64_t fee, amount = 0;
-    size_t i, txSize, cpfpSize = 0, inCount = 0;
+    size_t i, txSize = 0, witSize = 0, cpfpSize = 0, inCount = 0;
 
     assert(wallet != NULL);
     pthread_mutex_lock(&wallet->lock);
@@ -1140,6 +1140,14 @@ uint64_t BRWalletMaxOutputAmount(BRWallet *wallet)
         if (! tx || o->n >= tx->outCount) continue;
         inCount++;
         amount += tx->outputs[o->n].amount;
+
+        if (tx->outputs[o->n].script && tx->outputs[o->n].scriptLen > 0 &&
+            tx->outputs[o->n].script[0] == OP_0) {
+            witSize += TX_INPUT_SIZE;
+        }
+        else {
+            txSize += TX_INPUT_SIZE;
+        }
         
 //        // size of unconfirmed, non-change inputs for child-pays-for-parent fee
 //        // don't include parent tx with more than 10 inputs or 10 outputs
@@ -1147,8 +1155,10 @@ uint64_t BRWalletMaxOutputAmount(BRWallet *wallet)
 //            ! _BRWalletTxIsSend(wallet, tx)) cpfpSize += BRTransactionSize(tx);
     }
 
-    txSize = 8 + BRVarIntSize(inCount) + TX_INPUT_SIZE*inCount + BRVarIntSize(2) + TX_OUTPUT_SIZE*2;
-    fee = _txFee(wallet->feePerKb, txSize + cpfpSize);
+    txSize += 8 + BRVarIntSize(inCount) + BRVarIntSize(1) + TX_OUTPUT_SIZE;
+    if (witSize > 0) witSize += 2 + inCount;
+    txSize = (txSize*4 + witSize + 3)/4;
+    fee = _txFee(wallet->feePerKb, txSize + TX_OUTPUT_SIZE + cpfpSize);
     pthread_mutex_unlock(&wallet->lock);
     
     return (amount > fee) ? amount - fee : 0;
