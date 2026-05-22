@@ -84,6 +84,12 @@ size_t BRKeyPrivKey(const BRKey *key, char *privKey, size_t pkLen);
 // writes the DER encoded public key to pubKey and returns number of bytes written, or pkLen needed if pubKey is NULL
 size_t BRKeyPubKey(BRKey *key, void *pubKey, size_t pkLen);
 
+// writes the BIP340 x-only public key to pubKey32 and returns 32, or pkLen needed if pubKey32 is NULL
+size_t BRKeyXOnlyPubKey(BRKey *key, void *pubKey32, size_t pkLen);
+
+// writes the BIP341 no-script Taproot output key to pubKey32 and returns 32, or pkLen needed if pubKey32 is NULL
+size_t BRKeyTaprootOutputKey(BRKey *key, void *pubKey32, size_t pkLen);
+
 // returns the ripemd160 hash of the sha256 hash of the public key, or UINT160_ZERO on error
 UInt160 BRKeyHash160(BRKey *key);
 
@@ -96,8 +102,19 @@ size_t BRKeyAddress(BRKey *key, char *addr, size_t addrLen);
 // returns 0 on failure
 size_t BRKeySign(const BRKey *key, void *sig, size_t sigLen, UInt256 md);
 
+// signs md with a BIP340 Schnorr signature and writes the 64 byte signature to sig
+// returns 64, or sigLen needed if sig is NULL
+size_t BRKeySchnorrSign(const BRKey *key, void *sig, size_t sigLen, UInt256 md);
+
+// signs md with a BIP340 Schnorr signature using explicit 32 byte auxiliary randomness
+// returns 64, or sigLen needed if sig is NULL
+size_t BRKeySchnorrSignWithAux(const BRKey *key, void *sig, size_t sigLen, UInt256 md, const UInt256 *aux);
+
 // returns true if the signature for md is verified to have been made by key
 int BRKeyVerify(BRKey *key, UInt256 md, const void *sig, size_t sigLen);
+
+// returns true if the BIP340 Schnorr signature for md is verified to have been made by key
+int BRKeySchnorrVerify(BRKey *key, UInt256 md, const void *sig, size_t sigLen);
 
 // wipes key material from key
 void BRKeyClean(BRKey *key);

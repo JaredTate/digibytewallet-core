@@ -1015,6 +1015,53 @@ int BRKeyTests()
     UInt256 md;
     uint8_t sig[72], pubKey[65];
     size_t sigLen, pkLen;
+    UInt256 schnorrSecret = u256_hex_decode("0000000000000000000000000000000000000000000000000000000000000003"),
+            schnorrMsg = UINT256_ZERO,
+            schnorrAux = UINT256_ZERO;
+    uint8_t xOnlyPubKey[32], taprootOutputKey[32], schnorrSig[64];
+    static const uint8_t expectedXOnlyPubKey[32] = {
+        0xf9, 0x30, 0x8a, 0x01, 0x92, 0x58, 0xc3, 0x10,
+        0x49, 0x34, 0x4f, 0x85, 0xf8, 0x9d, 0x52, 0x29,
+        0xb5, 0x31, 0xc8, 0x45, 0x83, 0x6f, 0x99, 0xb0,
+        0x86, 0x01, 0xf1, 0x13, 0xbc, 0xe0, 0x36, 0xf9
+    };
+    static const uint8_t expectedTaprootOutputKey[32] = {
+        0x41, 0x8c, 0x46, 0x63, 0x6d, 0x9e, 0x1a, 0x68,
+        0x3f, 0x58, 0xe3, 0x5b, 0x42, 0x33, 0x6e, 0x77,
+        0x6f, 0xdc, 0xc3, 0xb2, 0xd4, 0xe3, 0x9e, 0x7a,
+        0x0b, 0xf1, 0xab, 0x07, 0x16, 0xe3, 0xc5, 0xfa
+    };
+    static const uint8_t expectedSchnorrSig[64] = {
+        0xe9, 0x07, 0x83, 0x1f, 0x80, 0x84, 0x8d, 0x10,
+        0x69, 0xa5, 0x37, 0x1b, 0x40, 0x24, 0x10, 0x36,
+        0x4b, 0xdf, 0x1c, 0x5f, 0x83, 0x07, 0xb0, 0x08,
+        0x4c, 0x55, 0xf1, 0xce, 0x2d, 0xca, 0x82, 0x15,
+        0x25, 0xf6, 0x6a, 0x4a, 0x85, 0xea, 0x8b, 0x71,
+        0xe4, 0x82, 0xa7, 0x4f, 0x38, 0x2d, 0x2c, 0xe5,
+        0xeb, 0xee, 0xe8, 0xfd, 0xb2, 0x17, 0x2f, 0x47,
+        0x7d, 0xf4, 0x90, 0x0d, 0x31, 0x05, 0x36, 0xc0
+    };
+
+    BRKeySetSecret(&key, &schnorrSecret, 1);
+    if (BRKeyXOnlyPubKey(&key, xOnlyPubKey, sizeof(xOnlyPubKey)) != sizeof(xOnlyPubKey) ||
+        memcmp(xOnlyPubKey, expectedXOnlyPubKey, sizeof(expectedXOnlyPubKey)) != 0)
+        r = 0, fprintf(stderr, "***FAILED*** %s: BRKeyXOnlyPubKey() BIP340 vector 0\n", __func__);
+
+    if (BRKeyTaprootOutputKey(&key, taprootOutputKey, sizeof(taprootOutputKey)) != sizeof(taprootOutputKey) ||
+        memcmp(taprootOutputKey, expectedTaprootOutputKey, sizeof(expectedTaprootOutputKey)) != 0)
+        r = 0, fprintf(stderr, "***FAILED*** %s: BRKeyTaprootOutputKey() no-script TapTweak vector\n", __func__);
+
+    if (BRKeySchnorrSignWithAux(&key, schnorrSig, sizeof(schnorrSig), schnorrMsg, &schnorrAux) != sizeof(schnorrSig) ||
+        memcmp(schnorrSig, expectedSchnorrSig, sizeof(expectedSchnorrSig)) != 0)
+        r = 0, fprintf(stderr, "***FAILED*** %s: BRKeySchnorrSignWithAux() BIP340 vector 0\n", __func__);
+
+    if (! BRKeySchnorrVerify(&key, schnorrMsg, expectedSchnorrSig, sizeof(expectedSchnorrSig)))
+        r = 0, fprintf(stderr, "***FAILED*** %s: BRKeySchnorrVerify() BIP340 vector 0\n", __func__);
+
+    schnorrSig[0] = expectedSchnorrSig[0] ^ 0x01;
+    memcpy(&schnorrSig[1], &expectedSchnorrSig[1], sizeof(expectedSchnorrSig) - 1);
+    if (BRKeySchnorrVerify(&key, schnorrMsg, schnorrSig, sizeof(schnorrSig)))
+        r = 0, fprintf(stderr, "***FAILED*** %s: BRKeySchnorrVerify() rejects mutated signature\n", __func__);
 
     if (BRPrivKeyIsValid("S6c56bnXQiBjk9mqSYE7ykVQ7NzrRz"))
         r = 0, fprintf(stderr, "***FAILED*** %s: BRPrivKeyIsValid() test 0\n", __func__);

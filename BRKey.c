@@ -38,8 +38,10 @@
 #define WORDS_BIGENDIAN        1
 #endif
 #define DETERMINISTIC          1
-#define USE_BASIC_CONFIG       1
+#define SECP256K1_BUILD
 #define ENABLE_MODULE_RECOVERY 1
+#define ENABLE_MODULE_EXTRAKEYS 1
+#define ENABLE_MODULE_SCHNORRSIG 1
 
 #pragma clang diagnostic push
 #pragma GCC diagnostic push
@@ -49,8 +51,11 @@
 #pragma GCC diagnostic ignored "-Wunused-function"
 #pragma clang diagnostic ignored "-Wconditional-uninitialized"
 #pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
-#include "secp256k1/src/basic-config.h"
+#include "secp256k1/src/precomputed_ecmult.c"
+#include "secp256k1/src/precomputed_ecmult_gen.c"
 #include "secp256k1/src/secp256k1.c"
+#include "secp256k1/include/secp256k1_extrakeys.h"
+#include "secp256k1/include/secp256k1_schnorrsig.h"
 #pragma clang diagnostic pop
 #pragma GCC diagnostic pop
 
@@ -268,6 +273,63 @@ size_t BRKeyPubKey(BRKey *key, void *pubKey, size_t pkLen)
     return (! pubKey || size <= pkLen) ? size : 0;
 }
 
+// writes the BIP340 x-only public key to pubKey32 and returns 32, or pkLen needed if pubKey32 is NULL
+size_t BRKeyXOnlyPubKey(BRKey *key, void *pubKey32, size_t pkLen)
+{
+    uint8_t pubKey[65];
+    size_t pubKeyLen;
+    secp256k1_pubkey pk;
+    secp256k1_xonly_pubkey xOnlyPubKey;
+    int parity = 0;
+
+    assert(key != NULL);
+
+    pthread_once(&_ctx_once, _ctx_init);
+    if (! pubKey32) return 32;
+    if (pkLen < 32) return 0;
+
+    pubKeyLen = BRKeyPubKey(key, pubKey, sizeof(pubKey));
+    if (pubKeyLen == 0 ||
+        ! secp256k1_ec_pubkey_parse(_ctx, &pk, pubKey, pubKeyLen) ||
+        ! secp256k1_xonly_pubkey_from_pubkey(_ctx, &xOnlyPubKey, &parity, &pk) ||
+        ! secp256k1_xonly_pubkey_serialize(_ctx, pubKey32, &xOnlyPubKey)) {
+        return 0;
+    }
+
+    return 32;
+}
+
+// writes the BIP341 no-script Taproot output key to pubKey32 and returns 32, or pkLen needed if pubKey32 is NULL
+size_t BRKeyTaprootOutputKey(BRKey *key, void *pubKey32, size_t pkLen)
+{
+    uint8_t internalKey[32], tweak[32];
+    secp256k1_xonly_pubkey internalXOnlyKey, outputXOnlyKey;
+    secp256k1_pubkey outputPubKey;
+    int parity = 0;
+
+    assert(key != NULL);
+
+    pthread_once(&_ctx_once, _ctx_init);
+    if (! pubKey32) return 32;
+    if (pkLen < 32) return 0;
+
+    if (BRKeyXOnlyPubKey(key, internalKey, sizeof(internalKey)) != sizeof(internalKey) ||
+        ! secp256k1_xonly_pubkey_parse(_ctx, &internalXOnlyKey, internalKey) ||
+        ! secp256k1_tagged_sha256(_ctx, tweak, (const unsigned char *)"TapTweak", 8, internalKey,
+                                  sizeof(internalKey)) ||
+        ! secp256k1_xonly_pubkey_tweak_add(_ctx, &outputPubKey, &internalXOnlyKey, tweak) ||
+        ! secp256k1_xonly_pubkey_from_pubkey(_ctx, &outputXOnlyKey, &parity, &outputPubKey) ||
+        ! secp256k1_xonly_pubkey_serialize(_ctx, pubKey32, &outputXOnlyKey)) {
+        mem_clean(internalKey, sizeof(internalKey));
+        mem_clean(tweak, sizeof(tweak));
+        return 0;
+    }
+
+    mem_clean(internalKey, sizeof(internalKey));
+    mem_clean(tweak, sizeof(tweak));
+    return 32;
+}
+
 // returns the ripemd160 hash of the sha256 hash of the public key
 UInt160 BRKeyHash160(BRKey *key)
 {
@@ -322,6 +384,33 @@ size_t BRKeySign(const BRKey *key, void *sig, size_t sigLen, UInt256 md)
     return sigLen;
 }
 
+// signs md with a BIP340 Schnorr signature and writes the 64 byte signature to sig
+// returns 64, or sigLen needed if sig is NULL
+size_t BRKeySchnorrSign(const BRKey *key, void *sig, size_t sigLen, UInt256 md)
+{
+    return BRKeySchnorrSignWithAux(key, sig, sigLen, md, NULL);
+}
+
+// signs md with a BIP340 Schnorr signature using explicit 32 byte auxiliary randomness
+// returns 64, or sigLen needed if sig is NULL
+size_t BRKeySchnorrSignWithAux(const BRKey *key, void *sig, size_t sigLen, UInt256 md, const UInt256 *aux)
+{
+    secp256k1_keypair keypair;
+    const uint8_t *auxRand = (aux) ? aux->u8 : NULL;
+
+    assert(key != NULL);
+
+    pthread_once(&_ctx_once, _ctx_init);
+    if (! sig) return 64;
+    if (sigLen < 64 || UInt256IsZero(key->secret) ||
+        ! secp256k1_keypair_create(_ctx, &keypair, key->secret.u8) ||
+        ! secp256k1_schnorrsig_sign32(_ctx, sig, md.u8, &keypair, auxRand)) {
+        return 0;
+    }
+
+    return 64;
+}
+
 // returns true if the signature for md is verified to have been made by key
 int BRKeyVerify(BRKey *key, UInt256 md, const void *sig, size_t sigLen)
 {
@@ -342,6 +431,22 @@ int BRKeyVerify(BRKey *key, UInt256 md, const void *sig, size_t sigLen)
     }
     
     return r;
+}
+
+// returns true if the BIP340 Schnorr signature for md is verified to have been made by key
+int BRKeySchnorrVerify(BRKey *key, UInt256 md, const void *sig, size_t sigLen)
+{
+    uint8_t xOnly[32];
+    secp256k1_xonly_pubkey xOnlyPubKey;
+
+    assert(key != NULL);
+    assert(sig != NULL || sigLen == 0);
+
+    pthread_once(&_ctx_once, _ctx_init);
+    return (sig != NULL && sigLen == 64 &&
+            BRKeyXOnlyPubKey(key, xOnly, sizeof(xOnly)) == sizeof(xOnly) &&
+            secp256k1_xonly_pubkey_parse(_ctx, &xOnlyPubKey, xOnly) &&
+            secp256k1_schnorrsig_verify(_ctx, sig, md.u8, sizeof(md), &xOnlyPubKey) == 1);
 }
 
 // wipes key material from key
