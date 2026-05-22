@@ -110,6 +110,14 @@ size_t BRKeySchnorrSign(const BRKey *key, void *sig, size_t sigLen, UInt256 md);
 // returns 64, or sigLen needed if sig is NULL
 size_t BRKeySchnorrSignWithAux(const BRKey *key, void *sig, size_t sigLen, UInt256 md, const UInt256 *aux);
 
+// signs md with a BIP341 no-script Taproot key-path signature and writes the 64 byte signature to sig
+// returns 64, or sigLen needed if sig is NULL
+size_t BRKeyTaprootSign(const BRKey *key, void *sig, size_t sigLen, UInt256 md);
+
+// signs md with a BIP341 no-script Taproot key-path signature using explicit 32 byte auxiliary randomness
+// returns 64, or sigLen needed if sig is NULL
+size_t BRKeyTaprootSignWithAux(const BRKey *key, void *sig, size_t sigLen, UInt256 md, const UInt256 *aux);
+
 // returns true if the signature for md is verified to have been made by key
 int BRKeyVerify(BRKey *key, UInt256 md, const void *sig, size_t sigLen);
 

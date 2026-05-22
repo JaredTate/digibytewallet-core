@@ -1041,6 +1041,16 @@ int BRKeyTests()
         0xeb, 0xee, 0xe8, 0xfd, 0xb2, 0x17, 0x2f, 0x47,
         0x7d, 0xf4, 0x90, 0x0d, 0x31, 0x05, 0x36, 0xc0
     };
+    static const uint8_t expectedTaprootSig[64] = {
+        0xe0, 0x5f, 0x8b, 0x96, 0x8c, 0x67, 0x37, 0xd6,
+        0xdf, 0xad, 0x8f, 0xe6, 0xd8, 0xa3, 0x7c, 0xc4,
+        0xdd, 0x88, 0xee, 0xc7, 0x93, 0x65, 0x74, 0xef,
+        0x9a, 0x33, 0xb9, 0x7d, 0x91, 0xc5, 0x67, 0xdf,
+        0xf8, 0xb5, 0x2c, 0x77, 0x30, 0xdb, 0xbc, 0x21,
+        0x8a, 0xeb, 0x14, 0xae, 0x8f, 0x37, 0xf7, 0xf1,
+        0xf4, 0xbb, 0x82, 0x61, 0x76, 0x22, 0xd4, 0x41,
+        0x62, 0x67, 0xfa, 0x6e, 0x17, 0xc3, 0x0d, 0xfd
+    };
 
     BRKeySetSecret(&key, &schnorrSecret, 1);
     if (BRKeyXOnlyPubKey(&key, xOnlyPubKey, sizeof(xOnlyPubKey)) != sizeof(xOnlyPubKey) ||
@@ -1054,6 +1064,10 @@ int BRKeyTests()
     if (BRKeySchnorrSignWithAux(&key, schnorrSig, sizeof(schnorrSig), schnorrMsg, &schnorrAux) != sizeof(schnorrSig) ||
         memcmp(schnorrSig, expectedSchnorrSig, sizeof(expectedSchnorrSig)) != 0)
         r = 0, fprintf(stderr, "***FAILED*** %s: BRKeySchnorrSignWithAux() BIP340 vector 0\n", __func__);
+
+    if (BRKeyTaprootSignWithAux(&key, schnorrSig, sizeof(schnorrSig), schnorrMsg, &schnorrAux) != sizeof(schnorrSig) ||
+        memcmp(schnorrSig, expectedTaprootSig, sizeof(expectedTaprootSig)) != 0)
+        r = 0, fprintf(stderr, "***FAILED*** %s: BRKeyTaprootSignWithAux() no-script TapTweak vector\n", __func__);
 
     if (! BRKeySchnorrVerify(&key, schnorrMsg, expectedSchnorrSig, sizeof(expectedSchnorrSig)))
         r = 0, fprintf(stderr, "***FAILED*** %s: BRKeySchnorrVerify() BIP340 vector 0\n", __func__);

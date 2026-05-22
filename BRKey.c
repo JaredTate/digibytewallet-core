@@ -411,6 +411,43 @@ size_t BRKeySchnorrSignWithAux(const BRKey *key, void *sig, size_t sigLen, UInt2
     return 64;
 }
 
+// signs md with a BIP341 no-script Taproot key-path signature and writes the 64 byte signature to sig
+// returns 64, or sigLen needed if sig is NULL
+size_t BRKeyTaprootSign(const BRKey *key, void *sig, size_t sigLen, UInt256 md)
+{
+    return BRKeyTaprootSignWithAux(key, sig, sigLen, md, NULL);
+}
+
+// signs md with a BIP341 no-script Taproot key-path signature using explicit 32 byte auxiliary randomness
+// returns 64, or sigLen needed if sig is NULL
+size_t BRKeyTaprootSignWithAux(const BRKey *key, void *sig, size_t sigLen, UInt256 md, const UInt256 *aux)
+{
+    uint8_t internalKey[32], tweak[32];
+    secp256k1_keypair keypair;
+    const uint8_t *auxRand = (aux) ? aux->u8 : NULL;
+
+    assert(key != NULL);
+
+    pthread_once(&_ctx_once, _ctx_init);
+    if (! sig) return 64;
+    if (sigLen < 64 || UInt256IsZero(key->secret)) return 0;
+
+    if (! secp256k1_keypair_create(_ctx, &keypair, key->secret.u8) ||
+        BRKeyXOnlyPubKey((BRKey *)key, internalKey, sizeof(internalKey)) != sizeof(internalKey) ||
+        ! secp256k1_tagged_sha256(_ctx, tweak, (const unsigned char *)"TapTweak", 8, internalKey,
+                                  sizeof(internalKey)) ||
+        ! secp256k1_keypair_xonly_tweak_add(_ctx, &keypair, tweak) ||
+        ! secp256k1_schnorrsig_sign32(_ctx, sig, md.u8, &keypair, auxRand)) {
+        mem_clean(internalKey, sizeof(internalKey));
+        mem_clean(tweak, sizeof(tweak));
+        return 0;
+    }
+
+    mem_clean(internalKey, sizeof(internalKey));
+    mem_clean(tweak, sizeof(tweak));
+    return 64;
+}
+
 // returns true if the signature for md is verified to have been made by key
 int BRKeyVerify(BRKey *key, UInt256 md, const void *sig, size_t sigLen)
 {
