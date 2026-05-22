@@ -1,13 +1,13 @@
 # DigiByte Wallet Core Architecture
 
-Last refreshed: 2026-05-21
-Compatibility target: DigiByte Core `v8.26.2`
+Last refreshed: 2026-05-22
+Compatibility target: DigiByte Core `v8.26.2` for public DigiByte SPV behavior, plus RC41/testnet25 DigiDollar bring-up
 
 ## Executive Summary
 
-`digibytewallet-core` is a compact C SPV wallet library derived from breadwallet-core. It is embedded by the mobile wallets through Swift/Clang modules on iOS and JNI/CMake on Android. It is not a DigiByte Core full node: it has no UTXO set, RPC server, mempool, compact block filter index, descriptor wallet, Taproot wallet, or DigiDollar logic.
+`digibytewallet-core` is a compact C SPV wallet library derived from breadwallet-core. It is embedded by the mobile wallets through Swift/Clang modules on iOS and JNI/CMake on Android. It is not a DigiByte Core full node: it has no UTXO set, RPC server, mempool, compact block filter index, descriptor wallet, or oracle runtime.
 
-The library preserves the original mobile SPV model: BIP39 mnemonic seed, breadwallet-style BIP32 derivation, legacy address/transaction creation, BIP37 bloom filters, merkleblock verification, and direct DigiByte P2P peer connections.
+The library preserves the original mobile SPV model: BIP39 mnemonic seed, breadwallet-style BIP32 derivation, address/transaction creation, BIP37 bloom filters, merkleblock verification, and direct DigiByte P2P peer connections. It now also includes Taproot key/script signing primitives and DigiDollar address, accounting, mint, transfer, vault tracking, and full-position redeem transaction builders for RC41/testnet25 validation.
 
 ## System Boundaries
 
@@ -37,7 +37,9 @@ digibytewallet-core/
 ├── BRBIP39Mnemonic.*     # Mnemonic validation and seed derivation
 ├── BRBIP39WordsEn.h      # English BIP39 word list
 ├── BRBloomFilter.*       # BIP37 bloom filters
-├── BRCrypto.*            # Hashes, HMAC, PBKDF2, scrypt, ChaCha/Poly1305
+├── BRCrypto.*            # Hashes, HMAC, PBKDF2, scrypt, ChaCha/Poly1305, multi-algo helpers
+├── BRDigiAsset.*         # DigiAsset parsing helpers kept for mobile compatibility
+├── BRDigiDollar.*        # DigiDollar address, OP_RETURN, collateral, and policy helpers
 ├── BRInt.h               # UInt128/160/256/512 and endian helpers
 ├── BRKey.*               # secp256k1 key, WIF, ECDSA, compact signatures
 ├── BRMerkleBlock.*       # Block header and merkle proof handling
@@ -49,7 +51,8 @@ digibytewallet-core/
 ├── BRWallet.*            # UTXO accounting and tx creation
 ├── module.modulemap      # Clang/Swift module definition
 ├── test.c                # Standalone C test harness
-└── secp256k1/            # Bundled secp256k1 source
+├── crypto/               # DigiByte multi-algo PoW hash implementations
+└── secp256k1/            # Bundled secp256k1 source with Schnorr/Taproot support
 ```
 
 ## Key Components
@@ -64,7 +67,13 @@ digibytewallet-core/
 
 ### Transactions
 
-`BRTransaction` supports legacy non-witness transaction serialization and ECDSA `SIGHASH_ALL` signing. It does not create SegWit witnesses, Taproot key/script spends, Schnorr signatures, PSBTs, descriptors, or DigiDollar transactions.
+`BRTransaction` supports legacy transaction serialization, witness serialization, ECDSA `SIGHASH_ALL`, BIP341 Taproot key-path sighashes, and Taproot script-path sighashes used by DigiDollar collateral redemption. It does not implement PSBTs or descriptor wallet behavior.
+
+### DigiDollar
+
+`BRDigiDollar` owns the mobile-facing DigiDollar protocol helpers: TD/DD address encoding, P2TR token scripts, OP_RETURN metadata, lock-tier/DCA/ERR math, collateral Taproot tree construction, and control-block generation. `BRWallet` tracks wallet-owned DigiDollar token outputs and active collateral vaults, builds transfer/mint/redeem transactions, and signs token key-path spends plus collateral script-path spends.
+
+The mobile core does not run oracles and does not validate the full DigiDollar consensus state. Oracle price and system-health values are supplied by the host app/operator during RC41 bring-up, then encoded into wallet-created transactions using the same transaction structure as DigiByte Core's DigiDollar wallet.
 
 ### SPV Networking
 
@@ -90,10 +99,10 @@ digibytewallet-core/
 | Mainnet/testnet WIF | `128` / `254` | Corrected for testnet |
 | DigiByte max money | `21,000,000,000 DGB` | Corrected |
 | DNS seeds | Core has several maintained seeds | This standalone repo has weak/old seed coverage |
-| Bech32/SegWit/Taproot | `dgb`, `dgbt`, Taproot active | Not implemented in this standalone core |
+| Bech32/SegWit/Taproot | `dgb`, `dgbt`, Taproot active | Address decode/encode and Taproot signing primitives are present |
 | BIP37 | Supported only by peers advertising bloom | Core uses BIP37 and filters for bloom peers |
 
-The current public stable compatibility target is `v8.26.2`. Newer `v9.26.0-rc*` releases are DigiDollar testnet/release-candidate work and are intentionally not used as this wallet's protocol baseline.
+The current public stable compatibility target remains `v8.26.2` for normal DigiByte SPV behavior. DigiDollar support is developed against the RC41/testnet25 protocol path and should not be confused with the public stable mainnet baseline until DigiDollar ships there.
 
 ## Data Flow
 
@@ -104,11 +113,11 @@ The current public stable compatibility target is `v8.26.2`. Newer `v9.26.0-rc*`
 5. The host app rehydrates transactions, peers, and merkle blocks from SQLite.
 6. `BRPeerManager` selects a checkpoint/start block, discovers peers, and opens P2P connections.
 7. Bloom filters are loaded; matching `merkleblock` and `tx` messages update wallet state.
-8. Outgoing transactions are signed by `BRWalletSignTransaction()` and published through connected peers.
+8. Outgoing DGB and DigiDollar transactions are signed by `BRWalletSignTransaction()` and published through connected peers.
 
 ## Build Notes
 
-The standalone repository can be compiled as plain C, but the legacy `test.c` harness still contains stale breadwallet/DigiByte fixtures and is not a reliable release gate without fixture cleanup. The iOS and Android repos embed their own detached copies of this core; those embedded copies must be audited separately before mobile release.
+The standalone repository can be compiled as plain C. The focused DigiDollar/Taproot harness currently exercises key vectors, DigiDollar protocol helpers, wallet accounting, transfer building, mint building, vault tracking, redeem building, and Taproot signing. The iOS repo embeds a detached copy of this core; keep the standalone and embedded copies synchronized deliberately.
 
 ## Design Patterns
 
@@ -120,8 +129,9 @@ The standalone repository can be compiled as plain C, but the legacy `test.c` ha
 
 ## Known Risks
 
-- The standalone core lacks current Bech32/SegWit/Taproot wallet support.
-- Multi-algo PoW and DigiByte difficulty validation are incomplete for a modern adversarial SPV threat model.
+- DigiDollar oracle data is still supplied externally; mobile does not run an oracle.
+- Live mint/redeem broadcast requires confirmed RC41 testnet DGB and DD outputs.
+- Multi-algo PoW validation is stronger than the old wallet but still not equivalent to a full node's adversarial validation model.
 - BIP37 peer availability is limited because many modern nodes disable bloom filters by default.
 - DNS seeds and checkpoints are much weaker than DigiByte Core `v8.26.2`.
 - The standalone repo is not automatically the exact core compiled by iOS/Android; mobile embedded copies must stay synchronized deliberately.
