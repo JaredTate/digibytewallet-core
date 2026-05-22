@@ -28,6 +28,7 @@
 #include "BRTransaction.h"
 #include "BRAddress.h"
 #include "BRBIP32Sequence.h"
+#include "BRDigiDollar.h"
 #include "BRInt.h"
 #include <string.h>
 
@@ -83,8 +84,14 @@ void BRWalletSetCallbacks(BRWallet *wallet, void *info,
 // returns the number addresses written to addrs
 size_t BRWalletUnusedAddrs(BRWallet *wallet, BRAddress addrs[], uint32_t gapLimit, int internal);
 
+// writes unused DigiDollar addresses backed by P2TR x-only keys from the same wallet chain
+size_t BRWalletUnusedDigiDollarAddrs(BRWallet *wallet, BRAddress addrs[], uint32_t gapLimit, int internal);
+
 // returns the first unused external address
 BRAddress BRWalletReceiveAddress(BRWallet *wallet);
+
+// returns the first unused external DigiDollar address
+BRAddress BRWalletDigiDollarReceiveAddress(BRWallet *wallet);
 
 // writes all addresses previously genereated with BRWalletUnusedAddrs() to addrs
 // returns the number addresses written, or total number available if addrs is NULL

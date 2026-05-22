@@ -1763,6 +1763,27 @@ int BRDigiDollarTests()
     if (BRDigiDollarBuildRedeemOpReturn(script, sizeof(script), 0) != 0)
         r = 0, fprintf(stderr, "***FAILED*** %s: zero-change redeem OP_RETURN omitted\n", __func__);
 
+    UInt128 seed = *(UInt128 *)"\x00\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0A\x0B\x0C\x0D\x0E\x0F";
+    BRMasterPubKey mpk = BRBIP32MasterPubKey(&seed, sizeof(seed));
+    BRWallet *wallet = BRWalletNew(NULL, 0, mpk);
+    BRAddress ddReceive = BRWalletDigiDollarReceiveAddress(wallet);
+    uint8_t derivedPubKey[BRBIP32PubKey(NULL, 0, mpk, SEQUENCE_EXTERNAL_CHAIN, 0)];
+    BRBIP32PubKey(derivedPubKey, sizeof(derivedPubKey), mpk, SEQUENCE_EXTERNAL_CHAIN, 0);
+#if BITCOIN_TESTNET
+    if (!BRDigiDollarAddressIsValidForNetwork(ddReceive.s, BRDigiDollarTestNet))
+        r = 0, fprintf(stderr, "***FAILED*** %s: wallet TD receive address\n", __func__);
+#else
+    if (!BRDigiDollarAddressIsValidForNetwork(ddReceive.s, BRDigiDollarMainNet))
+        r = 0, fprintf(stderr, "***FAILED*** %s: wallet DD receive address\n", __func__);
+#endif
+    if (!BRDigiDollarAddressDecode(decodedKey, &network, ddReceive.s) ||
+        memcmp(decodedKey, &derivedPubKey[1], sizeof(decodedKey)) != 0)
+        r = 0, fprintf(stderr, "***FAILED*** %s: wallet DD receive key derivation\n", __func__);
+    BRWalletUnusedDigiDollarAddrs(wallet, NULL, 150, 0);
+    if (!BRWalletContainsAddress(wallet, ddReceive.s))
+        r = 0, fprintf(stderr, "***FAILED*** %s: wallet DD address retained after chain growth\n", __func__);
+    BRWalletFree(wallet);
+
     tx = BRTransactionNew();
     tx->version = BRDigiDollarMakeVersion(BRDigiDollarTxTransfer, 0);
     BRTransactionAddOutput(tx, 0, p2tr, sizeof(p2tr));
@@ -1982,7 +2003,7 @@ int BRWalletTests()
     if (BRWalletBalance(w) != SATOSHIS)
         r = 0, fprintf(stderr, "***FAILED*** %s: BRWalletNew() test\n", __func__);
 
-    if (BRWalletAllAddrs(w, NULL, 0) != (2 * (SEQUENCE_GAP_LIMIT_EXTERNAL + SEQUENCE_GAP_LIMIT_INTERNAL) + 1))
+    if (BRWalletAllAddrs(w, NULL, 0) != (3 * (SEQUENCE_GAP_LIMIT_EXTERNAL + SEQUENCE_GAP_LIMIT_INTERNAL) + 1))
         r = 0, fprintf(stderr, "***FAILED*** %s: BRWalletAllAddrs() test\n", __func__);
     
     UInt256 hash = tx->txHash;

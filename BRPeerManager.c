@@ -26,6 +26,7 @@
 #include "BRBloomFilter.h"
 #include "BRSet.h"
 #include "BRArray.h"
+#include "BRDigiDollar.h"
 #include "BRInt.h"
 #include <stdlib.h>
 #include <stdio.h>
@@ -322,6 +323,8 @@ static void _BRPeerManagerLoadBloomFilter(BRPeerManager *manager, BRPeer *peer) 
     // wallet transaction is encountered during the chain sync
     BRWalletUnusedAddrs(manager->wallet, NULL, SEQUENCE_GAP_LIMIT_EXTERNAL + 100, 0);
     BRWalletUnusedAddrs(manager->wallet, NULL, SEQUENCE_GAP_LIMIT_INTERNAL + 100, 1);
+    BRWalletUnusedDigiDollarAddrs(manager->wallet, NULL, SEQUENCE_GAP_LIMIT_EXTERNAL + 100, 0);
+    BRWalletUnusedDigiDollarAddrs(manager->wallet, NULL, SEQUENCE_GAP_LIMIT_INTERNAL + 100, 1);
 
     BRSetApply(manager->orphans, NULL, _setApplyFreeBlock);
     BRSetClear(manager->orphans); // clear out orphans that may have been received on an old filter
@@ -349,11 +352,16 @@ static void _BRPeerManagerLoadBloomFilter(BRPeerManager *manager, BRPeer *peer) 
 
     for (size_t i = 0; i < addrsCount; i++) { // add addresses to watch for tx receiveing money to the wallet
         UInt160 hash = UINT160_ZERO;
+        BRDigiDollarNetwork network = BRDigiDollarMainNet;
+        uint8_t outputKey[BR_DIGIDOLLAR_XONLY_KEY_LENGTH];
 
-        BRAddressHash160(&hash, addrs[i].s);
-
-        if (!UInt160IsZero(hash) && !BRBloomFilterContainsData(filter, hash.u8, sizeof(hash))) {
+        if (BRAddressHash160(&hash, addrs[i].s) &&
+            !UInt160IsZero(hash) && !BRBloomFilterContainsData(filter, hash.u8, sizeof(hash))) {
             BRBloomFilterInsertData(filter, hash.u8, sizeof(hash));
+        }
+        else if (BRDigiDollarAddressDecode(outputKey, &network, addrs[i].s) &&
+                 !BRBloomFilterContainsData(filter, outputKey, sizeof(outputKey))) {
+            BRBloomFilterInsertData(filter, outputKey, sizeof(outputKey));
         }
     }
 
@@ -1023,6 +1031,22 @@ static void _peerRelayedTx(void *info, BRTransaction *tx) {
                     continue;
                 if (manager->bloomFilter) BRBloomFilterFree(manager->bloomFilter);
                 manager->bloomFilter = NULL; // reset bloom filter so it's recreated with new wallet addresses
+                _BRPeerManagerUpdateFilter(manager);
+                break;
+            }
+
+            BRWalletUnusedDigiDollarAddrs(manager->wallet, addrs, SEQUENCE_GAP_LIMIT_EXTERNAL, 0);
+            BRWalletUnusedDigiDollarAddrs(manager->wallet, addrs + SEQUENCE_GAP_LIMIT_EXTERNAL, SEQUENCE_GAP_LIMIT_INTERNAL, 1);
+
+            for (size_t i = 0; i < SEQUENCE_GAP_LIMIT_EXTERNAL + SEQUENCE_GAP_LIMIT_INTERNAL; i++) {
+                BRDigiDollarNetwork network = BRDigiDollarMainNet;
+                uint8_t outputKey[BR_DIGIDOLLAR_XONLY_KEY_LENGTH];
+
+                if (!BRDigiDollarAddressDecode(outputKey, &network, addrs[i].s) ||
+                    BRBloomFilterContainsData(manager->bloomFilter, outputKey, sizeof(outputKey)))
+                    continue;
+                if (manager->bloomFilter) BRBloomFilterFree(manager->bloomFilter);
+                manager->bloomFilter = NULL;
                 _BRPeerManagerUpdateFilter(manager);
                 break;
             }
