@@ -2159,9 +2159,15 @@ int BRDigiDollarWalletAccountingTests()
         BRWalletDigiDollarBalanceAfterTx(wallet, mintTx) != 10000) {
         r = 0, fprintf(stderr, "***FAILED*** %s: mint DD accounting accessors\n", __func__);
     }
+    volatile uint8_t stackNoise[4096];
+    memset((void *)stackNoise, 0xa5, sizeof(stackNoise));
+    BRAddress dgbReceiveAddress = BRWalletReceiveAddress(wallet, 1);
+    if (BRAddressEq(&dgbReceiveAddress, &BR_ADDRESS_NONE) || BRWalletBalance(wallet) != 0) {
+        r = 0, fprintf(stderr, "***FAILED*** %s: DD receive must not poison DGB receive address tracking\n", __func__);
+    }
 
     BRKey sourceKey;
-    BRAddress sourceAddress = BR_ADDRESS_NONE, feeAddress = BRWalletReceiveAddress(wallet, 1);
+    BRAddress sourceAddress = BR_ADDRESS_NONE, feeAddress = dgbReceiveAddress;
     UInt256 sourceSecret = uint256("0000000000000000000000000000000000000000000000000000000000000004");
     BRKeySetSecret(&sourceKey, &sourceSecret, 1);
     BRKeyAddress(&sourceKey, sourceAddress.s, sizeof(sourceAddress.s));

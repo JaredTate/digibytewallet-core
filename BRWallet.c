@@ -49,6 +49,7 @@ struct BRWalletStruct {
     BRAddress *internalChain, *externalChain;
     BRAddress *internalChainSegwit, *externalChainSegwit;
     BRAddress *internalChainDigiDollar, *externalChainDigiDollar;
+    BRAddress **usedDigiDollarAddrs;
     BRSet *allTx, *invalidTx, *pendingTx, *spentOutputs, *usedAddrs, *allAddrs;
     void *callbackInfo;
     void (*balanceChanged)(void *info, uint64_t balance);
@@ -66,6 +67,16 @@ inline static uint64_t _txFee(uint64_t feePerKb, size_t size)
     fee = (((size*feePerKb/1000) + 99)/100)*100;
     
     return (fee > standardFee) ? fee : standardFee;
+}
+
+static void _BRWalletClearUsedDigiDollarAddrs(BRWallet *wallet)
+{
+    assert(wallet != NULL);
+
+    for (size_t i = array_count(wallet->usedDigiDollarAddrs); i > 0; i--) {
+        free(wallet->usedDigiDollarAddrs[i - 1]);
+    }
+    array_clear(wallet->usedDigiDollarAddrs);
 }
 
 // chain position of first tx output address that appears in chain
@@ -113,6 +124,24 @@ static int _BRWalletDigiDollarAddressForOutput(BRAddress *address, const BRTxOut
     *address = BR_ADDRESS_NONE;
     return BRDigiDollarAddressEncode(address->s, sizeof(address->s), _BRWalletDigiDollarNetwork(),
                                      &output->script[2]) > 0;
+}
+
+static int _BRWalletAddUsedDigiDollarAddress(BRWallet *wallet, const BRAddress *address)
+{
+    BRAddress *storedAddress = NULL;
+
+    assert(wallet != NULL);
+    assert(address != NULL);
+
+    if (!wallet || !address || BRAddressEq(address, &BR_ADDRESS_NONE)) return 0;
+    if (BRSetContains(wallet->usedAddrs, address)) return 1;
+
+    storedAddress = malloc(sizeof(*storedAddress));
+    if (!storedAddress) return 0;
+    *storedAddress = *address;
+    array_add(wallet->usedDigiDollarAddrs, storedAddress);
+    BRSetAdd(wallet->usedAddrs, storedAddress);
+    return 1;
 }
 
 static int _BRWalletDigiDollarOwnerKeysForAddress(BRWallet *wallet, const BRAddress *address,
@@ -447,6 +476,7 @@ static void _BRWalletUpdateBalance(BRWallet *wallet)
     BRSetClear(wallet->invalidTx);
     BRSetClear(wallet->pendingTx);
     BRSetClear(wallet->usedAddrs);
+    _BRWalletClearUsedDigiDollarAddrs(wallet);
     wallet->totalSent = 0;
     wallet->totalReceived = 0;
     wallet->digiDollarTotalSent = 0;
@@ -537,7 +567,7 @@ static void _BRWalletUpdateBalance(BRWallet *wallet)
 
             if (_BRWalletDigiDollarAddressForOutput(&digiDollarAddress, &tx->outputs[j]) &&
                 BRSetContains(wallet->allAddrs, &digiDollarAddress)) {
-                BRSetAdd(wallet->usedAddrs, &digiDollarAddress);
+                _BRWalletAddUsedDigiDollarAddress(wallet, &digiDollarAddress);
 
                 if (BRDigiDollarTxOutputAmount(&digiDollarAmount, tx, j)) {
                     array_add(wallet->digiDollarUtxos, ((BRDigiDollarUTXO) {
@@ -640,6 +670,7 @@ BRWallet *BRWalletNew(BRTransaction *transactions[], size_t txCount, BRMasterPub
     array_new(wallet->externalChainSegwit, 50);
     array_new(wallet->internalChainDigiDollar, 50);
     array_new(wallet->externalChainDigiDollar, 50);
+    array_new(wallet->usedDigiDollarAddrs, 20);
     array_new(wallet->balanceHist, txCount + 100);
     array_new(wallet->digiDollarBalanceHist, txCount + 100);
     wallet->allTx = BRSetNew(BRTransactionHash, BRTransactionEq, txCount + 100);
@@ -2292,6 +2323,8 @@ void BRWalletFree(BRWallet *wallet)
     array_free(wallet->internalChainSegwit);
     array_free(wallet->internalChainDigiDollar);
     array_free(wallet->externalChainDigiDollar);
+    _BRWalletClearUsedDigiDollarAddrs(wallet);
+    array_free(wallet->usedDigiDollarAddrs);
     array_free(wallet->balanceHist);
     array_free(wallet->digiDollarBalanceHist);
 
