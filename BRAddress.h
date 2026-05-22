@@ -36,11 +36,24 @@ extern "C" {
 
 #if BITCOIN_TESTNET
 #pragma message "testnet build"
+#else
+#pragma message "mainnet build"
 #endif
 
-// bitcoin address prefixes
-#define BITCOIN_PUBKEY_ADDRESS      30
-#define BITCOIN_SCRIPT_ADDRESS      5
+// DigiByte address prefixes used by DigiByte Core v8.26.x.
+#define DIGIBYTE_PUBKEY_LEGACY                30 // "D"
+#define DIGIBYTE_SCRIPT_ADDRESS_LEGACY        5  // legacy "3"
+#define DIGIBYTE_SCRIPT_ADDRESS               63 // "S"
+
+#if BITCOIN_TESTNET
+#define DIGIBYTE_PUBKEY_BECH32                "dgbt"
+#else
+#define DIGIBYTE_PUBKEY_BECH32                "dgb"
+#endif
+
+// Compatibility aliases for the original breadwallet naming.
+#define BITCOIN_PUBKEY_ADDRESS      DIGIBYTE_PUBKEY_LEGACY
+#define BITCOIN_SCRIPT_ADDRESS      DIGIBYTE_SCRIPT_ADDRESS
 #define BITCOIN_PUBKEY_ADDRESS_TEST 126
 #define BITCOIN_SCRIPT_ADDRESS_TEST 140
 
@@ -49,11 +62,15 @@ extern "C" {
 #define OP_PUSHDATA1   0x4c
 #define OP_PUSHDATA2   0x4d
 #define OP_PUSHDATA4   0x4e
+#define OP_1NEGATE     0x4f
+#define OP_1           0x51
+#define OP_16          0x60
 #define OP_DUP         0x76
 #define OP_EQUAL       0x87
 #define OP_EQUALVERIFY 0x88
 #define OP_HASH160     0xa9
 #define OP_CHECKSIG    0xac
+#define OP_RETURN      0x6a
 
 // reads a varint from buf and stores its length in intLen if intLen is non-NULL
 // returns the varint value
@@ -76,11 +93,18 @@ const uint8_t *BRScriptData(const uint8_t *elem, size_t *dataLen);
 // returns the number of bytes written, or scriptLen needed if script is NULL
 size_t BRScriptPushData(uint8_t *script, size_t scriptLen, const uint8_t *data, size_t dataLen);
 
+// returns a pointer to the 20byte pubkey hash, or NULL if none
+const uint8_t *BRScriptPKH(const uint8_t *script, size_t scriptLen);
+
 typedef struct {
-    char s[36];
+    char s[76]; // 73 bytes + 3 bytes for hrp (dgb)
 } BRAddress;
 
-#define BR_ADDRESS_NONE ((BRAddress) { "\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0" })
+#define BR_ADDRESS_NONE ((BRAddress) { \
+    "\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0" \
+    "\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0" \
+    "\0\0\0\0\0" \
+})
 
 // writes the bitcoin address for a scriptPubKey to addr
 // returns the number of bytes written, or addrLen needed if addr is NULL
@@ -89,6 +113,10 @@ size_t BRAddressFromScriptPubKey(char *addr, size_t addrLen, const uint8_t *scri
 // writes the bitcoin address for a scriptSig to addr
 // returns the number of bytes written, or addrLen needed if addr is NULL
 size_t BRAddressFromScriptSig(char *addr, size_t addrLen, const uint8_t *script, size_t scriptLen);
+
+// writes the bitcoin address for a witness to addr
+// returns the number of bytes written, or addrLen needed if addr is NULL
+size_t BRAddressFromWitness(char *addr, size_t addrLen, const uint8_t *witness, size_t witLen);
 
 // writes the scriptPubKey for addr to script
 // returns the number of bytes written, or scriptLen needed if script is NULL

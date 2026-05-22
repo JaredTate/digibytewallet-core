@@ -30,6 +30,7 @@
 #include "BRBIP38Key.h"
 #include "BRAddress.h"
 #include "BRBase58.h"
+#include "BRBech32.h"
 #include "BRBIP39Mnemonic.h"
 #include "BRBIP39WordsEn.h"
 #include "BRPeer.h"
@@ -308,6 +309,54 @@ int BRBase58Tests()
     if (l5 != 21 || memcmp(s, b5, l5) != 0)
         r = 0, fprintf(stderr, "***FAILED*** %s: BRBase58CheckDecode() test 5\n", __func__);
 
+    return r;
+}
+
+int BRBech32Tests()
+{
+    int r = 1;
+    uint8_t b[52];
+    char h[84];
+    char *s, addr[91];
+    size_t l;
+
+    s = "\x00\x14\x75\x1e\x76\xe8\x19\x91\x96\xd4\x54\x94\x1c\x45\xd1\xb3\xa3\x23\xf1\x43\x3b\xd6";
+    l = BRBech32Decode(h, b, "BC1QW508D6QEJXTDG4Y5R3ZARVARY0C5XW7KV8F3T4");
+    if (l != 22 || strcmp(h, "bc") || memcmp(s, b, l))
+        r = 0, fprintf(stderr, "\n***FAILED*** %s: BRBech32Decode() test 1", __func__);
+
+    l = BRBech32Decode(h, b, "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4");
+    if (l != 22 || strcmp(h, "bc") || memcmp(s, b, l))
+        r = 0, fprintf(stderr, "\n***FAILED*** %s: BRBech32Decode() test 2", __func__);
+
+    l = BRBech32Encode(addr, "bc", b);
+    if (l == 0 || strcmp(addr, "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4"))
+        r = 0, fprintf(stderr, "\n***FAILED*** %s: BRBech32Encode() test 2", __func__);
+
+    s = "\x52\x10\x75\x1e\x76\xe8\x19\x91\x96\xd4\x54\x94\x1c\x45\xd1\xb3\xa3\x23";
+    l = BRBech32Decode(h, b, "bc1zw508d6qejxtdg4y5r3zarvaryvg6kdaj");
+    if (l != 18 || strcmp(h, "bc") || memcmp(s, b, l))
+        r = 0, fprintf(stderr, "\n***FAILED*** %s: BRBech32Decode() test 3", __func__);
+
+    l = BRBech32Encode(addr, "bc", b);
+    if (l == 0 || strcmp(addr, "bc1zw508d6qejxtdg4y5r3zarvaryvaxxpcs"))
+        r = 0, fprintf(stderr, "\n***FAILED*** %s: BRBech32Encode() test 3", __func__);
+
+    l = BRBech32EncodeEx(addr, "bc", b, BRBech32EncodingBech32);
+    if (l == 0 || strcmp(addr, "bc1zw508d6qejxtdg4y5r3zarvaryvg6kdaj"))
+        r = 0, fprintf(stderr, "\n***FAILED*** %s: BRBech32EncodeEx() test 3", __func__);
+
+    s = "\x51\x20\x00\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0a\x0b\x0c\x0d\x0e\x0f"
+        "\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1a\x1b\x1c\x1d\x1e\x1f";
+    l = BRBech32Decode(h, b, "dgb1pqqqsyqcyq5rqwzqfpg9scrgwpugpzysnzs23v9ccrydpk8qarc0s470eva");
+    if (l != 34 || strcmp(h, "dgb") || memcmp(s, b, l))
+        r = 0, fprintf(stderr, "\n***FAILED*** %s: BRBech32Decode() test 4", __func__);
+
+    l = BRBech32Encode(addr, "dgb", b);
+    if (l == 0 || strcmp(addr, "dgb1pqqqsyqcyq5rqwzqfpg9scrgwpugpzysnzs23v9ccrydpk8qarc0s470eva"))
+        r = 0, fprintf(stderr, "\n***FAILED*** %s: BRBech32Encode() test 4", __func__);
+
+    if (! r) fprintf(stderr, "\n                                    ");
     return r;
 }
 
@@ -1339,6 +1388,62 @@ int BRAddressTests()
     BRAddressFromScriptPubKey(addr2.s, sizeof(addr2), script, scriptLen);
     if (! BRAddressEq(&addr, &addr2))
         r = 0, fprintf(stderr, "***FAILED*** %s: BRAddressFromScriptPubKey()\n", __func__);
+
+    const char *taprootAddr = "dgb1pqqqsyqcyq5rqwzqfpg9scrgwpugpzysnzs23v9ccrydpk8qarc0s470eva";
+    const char *badTaprootChecksum = "dgb1pqqqsyqcyq5rqwzqfpg9scrgwpugpzysnzs23v9ccrydpk8qarc0s470evq";
+    const char *taprootWithBech32Checksum = "dgb1pqqqsyqcyq5rqwzqfpg9scrgwpugpzysnzs23v9ccrydpk8qarc0sqzl4fl";
+    const char *segwitAddr = "dgb1qqqqsyqcyq5rqwzqfpg9scrgwpugpzysnzhtfd6";
+    const char *segwitWithBech32mChecksum = "dgb1qqqqsyqcyq5rqwzqfpg9scrgwpugpzysnhtm9gc";
+    uint8_t taprootScript[] = {
+        OP_1, 32,
+        0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
+        0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f,
+        0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
+        0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f
+    };
+    uint8_t segwitScript[] = {
+        OP_0, 20,
+        0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
+        0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f,
+        0x10, 0x11, 0x12, 0x13
+    };
+    uint8_t outScript[sizeof(taprootScript)];
+    BRAddress taprootRoundtrip = BR_ADDRESS_NONE;
+    BRTxOutput output = BR_TX_OUTPUT_NONE;
+
+    if (! BRAddressIsValid(taprootAddr))
+        r = 0, fprintf(stderr, "***FAILED*** %s: BRAddressIsValid() taproot\n", __func__);
+
+    if (BRAddressIsValid(badTaprootChecksum))
+        r = 0, fprintf(stderr, "***FAILED*** %s: bad taproot checksum accepted\n", __func__);
+
+    if (BRAddressIsValid(taprootWithBech32Checksum))
+        r = 0, fprintf(stderr, "***FAILED*** %s: taproot bech32 checksum accepted\n", __func__);
+
+    if (! BRAddressIsValid(segwitAddr))
+        r = 0, fprintf(stderr, "***FAILED*** %s: BRAddressIsValid() segwit\n", __func__);
+
+    if (BRAddressIsValid(segwitWithBech32mChecksum))
+        r = 0, fprintf(stderr, "***FAILED*** %s: segwit bech32m checksum accepted\n", __func__);
+
+    scriptLen = BRAddressScriptPubKey(outScript, sizeof(outScript), taprootAddr);
+    if (scriptLen != sizeof(taprootScript) || memcmp(outScript, taprootScript, sizeof(taprootScript)) != 0)
+        r = 0, fprintf(stderr, "***FAILED*** %s: BRAddressScriptPubKey() taproot\n", __func__);
+
+    BRAddressFromScriptPubKey(taprootRoundtrip.s, sizeof(taprootRoundtrip), taprootScript, sizeof(taprootScript));
+    if (! BRAddressEq(taprootRoundtrip.s, taprootAddr))
+        r = 0, fprintf(stderr, "***FAILED*** %s: BRAddressFromScriptPubKey() taproot\n", __func__);
+
+    scriptLen = BRAddressScriptPubKey(outScript, sizeof(segwitScript), segwitAddr);
+    if (scriptLen != sizeof(segwitScript) || memcmp(outScript, segwitScript, sizeof(segwitScript)) != 0)
+        r = 0, fprintf(stderr, "***FAILED*** %s: BRAddressScriptPubKey() segwit\n", __func__);
+
+    BRTxOutputSetAddress(&output, taprootAddr);
+    if (strcmp(output.address, taprootAddr) != 0 || output.scriptLen != sizeof(taprootScript) ||
+        memcmp(output.script, taprootScript, sizeof(taprootScript)) != 0) {
+        r = 0, fprintf(stderr, "***FAILED*** %s: BRTxOutputSetAddress() taproot\n", __func__);
+    }
+    BRTxOutputSetScript(&output, NULL, 0);
     
     // TODO: test BRAddressFromScriptSig()
     
@@ -2445,6 +2550,8 @@ int BRRunTests()
     printf("%s\n", (BRSetTests()) ? "success" : (fail++, "***FAIL***"));
     printf("BRBase58Tests...                    ");
     printf("%s\n", (BRBase58Tests()) ? "success" : (fail++, "***FAIL***"));
+    printf("BRBech32Tests...                    ");
+    printf("%s\n", (BRBech32Tests()) ? "success" : (fail++, "***FAIL***"));
     printf("BRHashTests...                      ");
     printf("%s\n", (BRHashTests()) ? "success" : (fail++, "***FAIL***"));
     printf("BRMacTests...                       ");
