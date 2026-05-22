@@ -84,12 +84,17 @@ static BRDigiDollarNetwork _BRWalletDigiDollarNetwork(void)
 
 static int _BRWalletDigiDollarAddressForPubKey(BRAddress *address, const uint8_t *pubKey, size_t pubKeyLen)
 {
+    BRKey key;
+    uint8_t outputKey[BR_DIGIDOLLAR_XONLY_KEY_LENGTH];
+
     assert(address != NULL);
     assert(pubKey != NULL || pubKeyLen == 0);
 
     if (! address || ! pubKey || pubKeyLen != sizeof(BRECPoint)) return 0;
     *address = BR_ADDRESS_NONE;
-    return BRDigiDollarAddressEncode(address->s, sizeof(address->s), _BRWalletDigiDollarNetwork(), &pubKey[1]) > 0;
+    return (BRKeySetPubKey(&key, pubKey, pubKeyLen) &&
+            BRKeyTaprootOutputKey(&key, outputKey, sizeof(outputKey)) == sizeof(outputKey) &&
+            BRDigiDollarAddressEncode(address->s, sizeof(address->s), _BRWalletDigiDollarNetwork(), outputKey) > 0);
 }
 
 static int _BRWalletDigiDollarAddressForOutput(BRAddress *address, const BRTxOutput *output)

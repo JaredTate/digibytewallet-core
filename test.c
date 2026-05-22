@@ -1815,6 +1815,8 @@ int BRDigiDollarTests()
     BRWallet *wallet = BRWalletNew(NULL, 0, mpk);
     BRAddress ddReceive = BRWalletDigiDollarReceiveAddress(wallet);
     uint8_t derivedPubKey[BRBIP32PubKey(NULL, 0, mpk, SEQUENCE_EXTERNAL_CHAIN, 0)];
+    uint8_t expectedOutputKey[BR_DIGIDOLLAR_XONLY_KEY_LENGTH];
+    BRKey derivedKey;
     BRBIP32PubKey(derivedPubKey, sizeof(derivedPubKey), mpk, SEQUENCE_EXTERNAL_CHAIN, 0);
 #if BITCOIN_TESTNET
     if (!BRDigiDollarAddressIsValidForNetwork(ddReceive.s, BRDigiDollarTestNet))
@@ -1823,8 +1825,10 @@ int BRDigiDollarTests()
     if (!BRDigiDollarAddressIsValidForNetwork(ddReceive.s, BRDigiDollarMainNet))
         r = 0, fprintf(stderr, "***FAILED*** %s: wallet DD receive address\n", __func__);
 #endif
-    if (!BRDigiDollarAddressDecode(decodedKey, &network, ddReceive.s) ||
-        memcmp(decodedKey, &derivedPubKey[1], sizeof(decodedKey)) != 0)
+    if (!BRKeySetPubKey(&derivedKey, derivedPubKey, sizeof(derivedPubKey)) ||
+        BRKeyTaprootOutputKey(&derivedKey, expectedOutputKey, sizeof(expectedOutputKey)) != sizeof(expectedOutputKey) ||
+        !BRDigiDollarAddressDecode(decodedKey, &network, ddReceive.s) ||
+        memcmp(decodedKey, expectedOutputKey, sizeof(decodedKey)) != 0)
         r = 0, fprintf(stderr, "***FAILED*** %s: wallet DD receive key derivation\n", __func__);
     BRWalletUnusedDigiDollarAddrs(wallet, NULL, 150, 0);
     if (!BRWalletContainsAddress(wallet, ddReceive.s))
