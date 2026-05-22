@@ -97,9 +97,50 @@ BRMerkleBlock *BRMerkleBlockCopy(const BRMerkleBlock *block)
     return cpy;
 }
 
+static void _BRMerkleBlockSetHashes(BRMerkleBlock *block, const uint8_t *buf, uint32_t odoShapechangeInterval)
+{
+    assert(block != NULL);
+    assert(buf != NULL);
+
+    BRSHA256_2(&block->blockHash, buf, 80);
+
+    switch (block->version & BLOCK_VERSION_ALGO_MASK) {
+        case BLOCK_VERSION_SHA256D:
+            BRSHA256_2(&block->powHash, buf, 80);
+            break;
+
+        case BLOCK_VERSION_SKEIN:
+            BRSkein((const char*) buf, (char*) &block->powHash.u8[0]);
+            break;
+
+        case BLOCK_VERSION_QUBIT:
+            BRQubit((const char*) buf, (char*) &block->powHash.u8[0]);
+            break;
+
+        case BLOCK_VERSION_ODO:
+            BROdocryptWithInterval((const char*) buf, block->timestamp, odoShapechangeInterval, &block->powHash.u8[0]);
+            break;
+
+        case BLOCK_VERSION_GROESTL:
+            BRGroestl((const char*) buf, (char*) &block->powHash.u8[0]);
+            break;
+
+        case BLOCK_VERSION_SCRYPT:
+            BRScrypt(&block->powHash, sizeof(block->powHash), buf, 80, buf, 80, 1024, 1, 1);
+            break;
+
+        default:
+#if DEBUG
+            assert(0 && "Invalid algorithm");
+#else
+            break;
+#endif
+    }
+}
+
 // buf must contain either a serialized merkleblock or header
 // returns a merkle block struct that must be freed by calling BRMerkleBlockFree()
-BRMerkleBlock *BRMerkleBlockParse(const uint8_t *buf, size_t bufLen)
+BRMerkleBlock *BRMerkleBlockParseWithOdoInterval(const uint8_t *buf, size_t bufLen, uint32_t odoShapechangeInterval)
 {
     BRMerkleBlock *block = (buf && 80 <= bufLen) ? BRMerkleBlockNew() : NULL;
     size_t off = 0, len = 0;
@@ -135,50 +176,15 @@ BRMerkleBlock *BRMerkleBlockParse(const uint8_t *buf, size_t bufLen)
             block->flags = (off + len <= bufLen) ? malloc(len) : NULL;
             if (block->flags) memcpy(block->flags, &buf[off], len);
         }
-        
-        BRSHA256_2(&block->blockHash, buf, 80);
-
-        switch (block->version & BLOCK_VERSION_ALGO_MASK) {
-            case BLOCK_VERSION_SHA256D:
-                // void BRSHA256_2(void *md32, const void *data, size_t len)
-                BRSHA256_2(&block->powHash, buf, 80);
-                break;
-
-            case BLOCK_VERSION_SKEIN:
-                // void BRSkein(const char* input, char* output)
-                BRSkein((const char*) buf, (char*) &block->powHash.u8[0]);
-                break;
-
-            case BLOCK_VERSION_QUBIT:
-                // void BRQubit(const char* input, char* output)
-                BRQubit((const char*) buf, (char*) &block->powHash.u8[0]);
-                break;
-
-            case BLOCK_VERSION_ODO:
-                // void BROdocrypt(const char* input, const uint32_t nTime, uint8_t* output)
-                BROdocrypt((const char*) buf, block->timestamp, &block->powHash.u8[0]);
-                break;
-                
-            case BLOCK_VERSION_GROESTL:
-                // void BRGroestl(const char* input, char* output)
-                BRGroestl((const char*) buf, (char*) &block->powHash.u8[0]);
-                break;
-
-            case BLOCK_VERSION_SCRYPT:
-                // void BRScrypt(void *dk, size_t dkLen, const void *pw, size_t pwLen, const void *salt, size_t saltLen, unsigned n, unsigned r, unsigned p)
-                BRScrypt(&block->powHash, sizeof(block->powHash), buf, 80, buf, 80, 1024, 1, 1);
-                break;
-                
-            default:
-#if DEBUG
-                assert(0 && "Invalid algorithm");
-#else
-                break;
-#endif
-        }
+        _BRMerkleBlockSetHashes(block, buf, odoShapechangeInterval);
     }
     
     return block;
+}
+
+BRMerkleBlock *BRMerkleBlockParse(const uint8_t *buf, size_t bufLen)
+{
+    return BRMerkleBlockParseWithOdoInterval(buf, bufLen, BR_ODO_SHAPECHANGE_INTERVAL_MAINNET);
 }
 
 // returns number of bytes written to buf, or total bufLen needed if buf is NULL (block->height is not serialized)

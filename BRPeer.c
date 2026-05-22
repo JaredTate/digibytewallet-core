@@ -91,6 +91,7 @@ typedef enum {
 typedef struct {
     BRPeer peer; // superstruct on top of BRPeer
     uint32_t magicNumber;
+    uint32_t odoShapechangeInterval;
     char host[INET6_ADDRSTRLEN];
     BRPeerStatus status;
     int waitingForNetwork;
@@ -478,7 +479,8 @@ static int _BRPeerAcceptHeadersMessage(BRPeer *peer, const uint8_t *msg, size_t 
             else BRPeerSendGetheaders(peer, locators, 2, UINT256_ZERO);
 
             for (size_t i = 0; r && i < count; i++) {
-                BRMerkleBlock *block = BRMerkleBlockParse(&msg[off + 81*i], 81);
+                BRMerkleBlock *block = BRMerkleBlockParseWithOdoInterval(&msg[off + 81*i], 81,
+                                                                          ctx->odoShapechangeInterval);
                 
                 if (! BRMerkleBlockIsValid(block, (uint32_t)now)) {
                     peer_log(peer, "invalid block header: %s ", log_u256_hex_encode(block->blockHash));
@@ -689,7 +691,7 @@ static int _BRPeerAcceptMerkleblockMessage(BRPeer *peer, const uint8_t *msg, siz
     // a merkleblock message, the remote node is expected to send tx messages for the tx referenced in the block. When a
     // non-tx message is received we should have all the tx in the merkleblock.
     BRPeerContext *ctx = (BRPeerContext *)peer;
-    BRMerkleBlock *block = BRMerkleBlockParse(msg, msgLen);
+    BRMerkleBlock *block = BRMerkleBlockParseWithOdoInterval(msg, msgLen, ctx->odoShapechangeInterval);
     int r = 1;
   
     if (! block) {
@@ -1052,6 +1054,7 @@ BRPeer *BRPeerNew(uint32_t magicNumber)
     
     assert(ctx != NULL);
     ctx->magicNumber = magicNumber;
+    ctx->odoShapechangeInterval = BR_ODO_SHAPECHANGE_INTERVAL_MAINNET;
     array_new(ctx->useragent, 40);
     array_new(ctx->knownBlockHashes, 10);
     array_new(ctx->currentBlockTxHashes, 10);
@@ -1115,6 +1118,16 @@ void BRPeerSetCallbacks(BRPeer *peer, void *info,
 void BRPeerSetEarliestKeyTime(BRPeer *peer, uint32_t earliestKeyTime)
 {
     ((BRPeerContext *)peer)->earliestKeyTime = earliestKeyTime;
+}
+
+// set Odocrypt shapechange interval from chain params for proof-of-work checks
+void BRPeerSetOdoShapechangeInterval(BRPeer *peer, uint32_t odoShapechangeInterval)
+{
+    BRPeerContext *ctx = (BRPeerContext *)peer;
+
+    assert(peer != NULL);
+    ctx->odoShapechangeInterval = (odoShapechangeInterval > 0) ? odoShapechangeInterval :
+                                  BR_ODO_SHAPECHANGE_INTERVAL_MAINNET;
 }
 
 // call this when local block height changes (helps detect tarpit nodes)

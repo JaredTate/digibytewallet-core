@@ -1019,18 +1019,23 @@ void BRQubit(const char* input, char* output) {
 
 /* Odocrypt hashing functions and helpers */
 
-uint32_t OdoKey(uint32_t nTime)
+uint32_t BROdoKey(uint32_t nTime, uint32_t shapechangeInterval)
 {
-    uint32_t nOdoShapechangeInterval = ODOCRYPT_CHAPECHANGE_INTERVAL;
+    uint32_t nOdoShapechangeInterval = (shapechangeInterval > 0) ? shapechangeInterval : BR_ODO_SHAPECHANGE_INTERVAL_MAINNET;
     return nTime - nTime % nOdoShapechangeInterval;
+}
+
+void BROdocryptWithInterval(const char* input, const uint32_t nTime, uint32_t shapechangeInterval, uint8_t* output)
+{
+    OdoStruct odo; // sizeof(OdoStruct) = 167288 => stack safe
+    
+    uint32_t key = BROdoKey(nTime, shapechangeInterval);
+    
+    Odocrypt_Init(&odo, key);
+    Odocrypt_Hash(&odo, input, input + 80, (char*) output);
 }
 
 void BROdocrypt(const char* input, const uint32_t nTime, uint8_t* output)
 {
-    OdoStruct odo; // sizeof(OdoStruct) = 167288 => stack safe
-    
-    uint32_t key = OdoKey(nTime);
-    
-    Odocrypt_Init(&odo, key);
-    Odocrypt_Hash(&odo, input, input + 80, (char*) output);
+    BROdocryptWithInterval(input, nTime, BR_ODO_SHAPECHANGE_INTERVAL_MAINNET, output);
 }

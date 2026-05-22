@@ -1867,6 +1867,7 @@ void BRPeerManagerConnect(BRPeerManager *manager)
                                    _peerRelayedTx, _peerHasTx, _peerRejectedTx, _peerRelayedBlock, _peerDataNotfound,
                                    _peerSetFeePerKb, _peerRequestedTx, _peerNetworkIsReachable, _peerThreadCleanup);
                 BRPeerSetEarliestKeyTime(info->peer, manager->earliestKeyTime);
+                BRPeerSetOdoShapechangeInterval(info->peer, manager->params->odoShapechangeInterval);
                 BRPeerConnect(info->peer);
                 
                 if (BRPeerConnectStatus(info->peer) == BRPeerStatusDisconnected) {

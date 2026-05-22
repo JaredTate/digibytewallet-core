@@ -106,6 +106,11 @@ void BRGroestl(const char* input, char* output);
 
 void BRQubit(const char* input, char* output);
     
+#define BR_ODO_SHAPECHANGE_INTERVAL_MAINNET (10*24*60*60)
+#define BR_ODO_SHAPECHANGE_INTERVAL_TESTNET25 (1*24*60*60)
+
+uint32_t BROdoKey(uint32_t nTime, uint32_t shapechangeInterval);
+void BROdocryptWithInterval(const char* input, const uint32_t nTime, uint32_t shapechangeInterval, uint8_t* output);
 void BROdocrypt(const char* input, const uint32_t nTime, uint8_t* output);
 
 // zeros out memory in a way that can't be optimized out by the compiler

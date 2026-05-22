@@ -833,7 +833,7 @@ uint64_t BRDigiDollarMintLockHeight(uint32_t currentBlockHeight, uint32_t lockTi
     uint64_t lockBlocks = BRDigiDollarLockTierBlocks(lockTier);
 
     if (lockBlocks == 0) return 0;
-    return (uint64_t)currentBlockHeight + 1 + lockBlocks + BR_DIGIDOLLAR_MINT_LOCK_CONFIRMATION_BUFFER_BLOCKS;
+    return (uint64_t)currentBlockHeight + lockBlocks + BR_DIGIDOLLAR_MINT_LOCK_CONFIRMATION_BUFFER_BLOCKS;
 }
 
 uint32_t BRDigiDollarERRRatioBps(int32_t systemHealth)

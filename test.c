@@ -1782,6 +1782,10 @@ int BRChainParamsTests()
     if (BRTestNetParams.magicNumber != 0xe6b8c5fe)
         r = 0, fprintf(stderr, "***FAILED*** %s: BRTestNetParams.magicNumber\n", __func__);
 
+    if (BRMainNetParams.odoShapechangeInterval != BR_ODO_SHAPECHANGE_INTERVAL_MAINNET ||
+        BRTestNetParams.odoShapechangeInterval != BR_ODO_SHAPECHANGE_INTERVAL_TESTNET25)
+        r = 0, fprintf(stderr, "***FAILED*** %s: odoShapechangeInterval\n", __func__);
+
     if (BRTestNetParams.dnsSeeds[0] == NULL ||
         strcmp(BRTestNetParams.dnsSeeds[0], "testnetseed.digibyte.io") != 0 ||
         strcmp(BRTestNetParams.dnsSeeds[1], "testnetseed.digibyte.link") != 0 ||
@@ -1945,7 +1949,7 @@ int BRDigiDollarTests()
         BRDigiDollarEffectiveCollateralRatio(1000, 149) != 1250 ||
         BRDigiDollarRequiredCollateral(10000, 0, 6310, 150) != 15847860538828ULL ||
         BRDigiDollarRequiredCollateralWithSafetyMargin(10000, 0, 6310, 150) != 16006339144216ULL ||
-        BRDigiDollarMintLockHeight(500, 0) != 841)
+        BRDigiDollarMintLockHeight(500, 0) != 840)
         r = 0, fprintf(stderr, "***FAILED*** %s: collateral math\n", __func__);
 
     len = BRDigiDollarBuildMintOpReturn(script, sizeof(script), 10000, 1234567, 2, ownerKey);
@@ -2029,6 +2033,33 @@ static void _BRDigiDollarTestAddSignedInput(BRTransaction *tx, UInt256 prevHash,
                           signature, sizeof(signature), TXIN_SEQUENCE);
 }
 
+static const uint8_t *_BRDigiDollarTestWitnessItem(const BRTransaction *tx, size_t inputIndex,
+                                                   size_t itemIndex, size_t *itemLen)
+{
+    const BRTxInput *input;
+    size_t off = 0, len = 0;
+
+    if (itemLen) *itemLen = 0;
+    if (!tx || inputIndex >= tx->inCount) return NULL;
+    input = &tx->inputs[inputIndex];
+
+    for (size_t i = 0; off < input->witLen; i++) {
+        uint64_t l = BRVarInt(&input->witness[off], input->witLen - off, &len);
+        const uint8_t *item;
+
+        if (len == 0 || off + len + l > input->witLen) return NULL;
+        off += len;
+        item = &input->witness[off];
+        if (i == itemIndex) {
+            if (itemLen) *itemLen = (size_t)l;
+            return item;
+        }
+        off += (size_t)l;
+    }
+
+    return NULL;
+}
+
 static BRTransaction *_BRDigiDollarTestMintTx(UInt256 txHash, const uint8_t tokenKey[BR_DIGIDOLLAR_XONLY_KEY_LENGTH],
                                               uint64_t amountCents, uint32_t blockHeight)
 {
@@ -2045,7 +2076,7 @@ static BRTransaction *_BRDigiDollarTestMintTx(UInt256 txHash, const uint8_t toke
     BRDigiDollarP2TRScriptPubKey(collateralScript, sizeof(collateralScript), collateralKey);
     BRDigiDollarP2TRScriptPubKey(tokenScript, sizeof(tokenScript), tokenKey);
     size_t opReturnLen = BRDigiDollarBuildMintOpReturn(opReturn, sizeof(opReturn), amountCents,
-                                                       blockHeight + BRDigiDollarLockTierBlocks(0), 0, tokenKey);
+                                                       BRDigiDollarMintLockHeight(blockHeight, 0), 0, tokenKey);
     BRTransactionAddOutput(tx, SATOSHIS, collateralScript, sizeof(collateralScript));
     BRTransactionAddOutput(tx, 0, tokenScript, sizeof(tokenScript));
     BRTransactionAddOutput(tx, 0, opReturn, opReturnLen);
@@ -2194,7 +2225,7 @@ int BRDigiDollarWalletAccountingTests()
     if (!BRWalletRegisterTransaction(mintWallet, mintFundingTx) || BRWalletBalance(mintWallet) != 200*SATOSHIS)
         r = 0, fprintf(stderr, "***FAILED*** %s: register DD mint funding UTXO\n", __func__);
 
-    BRTransaction *builtMintTx = BRWalletCreateDigiDollarMint(mintWallet, 10000, 0, 500, 10000000, 150);
+    BRTransaction *builtMintTx = BRWalletCreateDigiDollarMint(mintWallet, 10000, 0, 600, 10000000, 150);
     uint8_t expectedOwnerXOnly[BR_DIGIDOLLAR_XONLY_KEY_LENGTH], expectedTokenOutputKey[BR_DIGIDOLLAR_XONLY_KEY_LENGTH];
     uint8_t expectedTokenScript[34], expectedCollateralScript[34];
     uint8_t mintPubKey[BRBIP32PubKey(NULL, 0, mpk, SEQUENCE_EXTERNAL_CHAIN, 0)];
@@ -2208,7 +2239,7 @@ int BRDigiDollarWalletAccountingTests()
     BRKeyXOnlyPubKey(&mintOwnerKey, expectedOwnerXOnly, sizeof(expectedOwnerXOnly));
     BRKeyTaprootOutputKey(&mintOwnerKey, expectedTokenOutputKey, sizeof(expectedTokenOutputKey));
     BRDigiDollarP2TRScriptPubKey(expectedTokenScript, sizeof(expectedTokenScript), expectedTokenOutputKey);
-    BRDigiDollarCollateralScriptPubKey(expectedCollateralScript, sizeof(expectedCollateralScript), 10000, 841,
+    BRDigiDollarCollateralScriptPubKey(expectedCollateralScript, sizeof(expectedCollateralScript), 10000, 940,
                                        expectedOwnerXOnly, NULL);
 
     if (!builtMintTx || builtMintTx->version != BRDigiDollarMakeVersion(BRDigiDollarTxMint, 0) ||
@@ -2218,7 +2249,7 @@ int BRDigiDollarWalletAccountingTests()
         builtMintTx->outputs[1].amount != 0 ||
         memcmp(builtMintTx->outputs[1].script, expectedTokenScript, sizeof(expectedTokenScript)) != 0 ||
         !BRDigiDollarTxFindOpReturn(builtMintTx, &mintMetadata, &mintOpReturnIndex) ||
-        mintOpReturnIndex != 2 || mintMetadata.amounts[0] != 10000 || mintMetadata.lockHeight != 841 ||
+        mintOpReturnIndex != 2 || mintMetadata.amounts[0] != 10000 || mintMetadata.lockHeight != 940 ||
         mintMetadata.lockTier != 0 ||
         memcmp(mintMetadata.ownerXOnlyPubKey, expectedOwnerXOnly, sizeof(expectedOwnerXOnly)) != 0 ||
         !BRDigiDollarTxOutputAmount(&amount, builtMintTx, 1) || amount != 10000 ||
@@ -2245,14 +2276,56 @@ int BRDigiDollarWalletAccountingTests()
     if (builtMintTx && (BRWalletDigiDollarVaults(mintWallet, vaults, 2) != 1 ||
                         !UInt256Eq(vaults[0].hash, builtMintTx->txHash) || vaults[0].n != 0 ||
                         vaults[0].amountCents != 10000 || vaults[0].collateralSatoshis != 101*SATOSHIS ||
-                        vaults[0].lockHeight != 841 || vaults[0].lockTier != 0 ||
+                        vaults[0].lockHeight != 940 || vaults[0].lockTier != 0 ||
                         memcmp(vaults[0].ownerXOnlyPubKey, expectedOwnerXOnly, sizeof(expectedOwnerXOnly)) != 0))
         r = 0, fprintf(stderr, "***FAILED*** %s: DD mint vault tracking\n", __func__);
     if (builtMintTx && builtMintRegistered) {
-        BRTransaction *builtRedeemTx = BRWalletCreateDigiDollarRedeem(mintWallet, vaults[0].hash, vaults[0].n, 900, 150);
+        UInt256 errTopupHash = u256_hex_decode("6000000000000000000000000000000000000000000000000000000000000000");
+        UInt256 errTopupInputHash = u256_hex_decode("6100000000000000000000000000000000000000000000000000000000000000");
+        BRTransaction *errTopupTx = _BRDigiDollarTestTransferTx(errTopupHash, errTopupInputHash, 0,
+                                                                expectedTokenOutputKey, externalKey, 2500, 100);
+        BRTransaction *builtERRRedeemTx = NULL;
+
+        if (!BRWalletRegisterTransaction(mintWallet, errTopupTx) ||
+            BRWalletDigiDollarBalance(mintWallet) != 12500 ||
+            BRWalletDigiDollarUTXOs(mintWallet, utxos, 2) != 2) {
+            r = 0, fprintf(stderr, "***FAILED*** %s: register DD ERR top-up\n", __func__);
+        }
+        builtERRRedeemTx = BRWalletCreateDigiDollarRedeem(mintWallet, vaults[0].hash, vaults[0].n, 1000, 80);
+        if (!builtERRRedeemTx || builtERRRedeemTx->inCount < 3 ||
+            BRWalletDigiDollarAmountSentByTx(mintWallet, builtERRRedeemTx) != 12500) {
+            r = 0, fprintf(stderr, "***FAILED*** %s: create DD ERR redeem tx\n", __func__);
+        }
+        if (builtERRRedeemTx && !BRWalletSignTransaction(mintWallet, builtERRRedeemTx, 0, &seed, sizeof(seed))) {
+            r = 0, fprintf(stderr, "***FAILED*** %s: sign DD ERR redeem tx\n", __func__);
+        }
+        if (builtERRRedeemTx) {
+            size_t sigLen = 0, ratioLen = 0, scriptLen = 0, controlLen = 0;
+            const uint8_t *sig = _BRDigiDollarTestWitnessItem(builtERRRedeemTx, 0, 0, &sigLen);
+            const uint8_t *ratio = _BRDigiDollarTestWitnessItem(builtERRRedeemTx, 0, 1, &ratioLen);
+            const uint8_t *witnessScript = _BRDigiDollarTestWitnessItem(builtERRRedeemTx, 0, 2, &scriptLen);
+            const uint8_t *control = _BRDigiDollarTestWitnessItem(builtERRRedeemTx, 0, 3, &controlLen);
+
+            if (!sig || sigLen != 64 ||
+                !ratio || ratioLen != 1 || ratio[0] != 80 ||
+                !witnessScript || scriptLen == 0 ||
+                !memchr(witnessScript, OP_CHECKCOLLATERAL, scriptLen) ||
+                !control || controlLen != 65 ||
+                _BRDigiDollarTestWitnessItem(builtERRRedeemTx, 0, 4, NULL)) {
+                r = 0, fprintf(stderr, "***FAILED*** %s: signed DD ERR redeem witness\n", __func__);
+            }
+            BRTransactionFree(builtERRRedeemTx);
+        }
+        BRWalletRemoveTransaction(mintWallet, errTopupHash);
+        if (BRWalletDigiDollarBalance(mintWallet) != 10000 ||
+            BRWalletDigiDollarUTXOs(mintWallet, utxos, 2) != 1) {
+            r = 0, fprintf(stderr, "***FAILED*** %s: remove DD ERR top-up\n", __func__);
+        }
+
+        BRTransaction *builtRedeemTx = BRWalletCreateDigiDollarRedeem(mintWallet, vaults[0].hash, vaults[0].n, 1000, 150);
 
         if (!builtRedeemTx || builtRedeemTx->version != BRDigiDollarMakeVersion(BRDigiDollarTxRedeem, 0) ||
-            builtRedeemTx->lockTime != 841 || builtRedeemTx->inCount < 3 || builtRedeemTx->outCount < 2 ||
+            builtRedeemTx->lockTime != 940 || builtRedeemTx->inCount < 3 || builtRedeemTx->outCount < 2 ||
             !UInt256Eq(builtRedeemTx->inputs[0].txHash, builtMintTx->txHash) || builtRedeemTx->inputs[0].index != 0 ||
             builtRedeemTx->inputs[0].sequence != TXIN_SEQUENCE - 1 ||
             !UInt256Eq(builtRedeemTx->inputs[1].txHash, builtMintTx->txHash) || builtRedeemTx->inputs[1].index != 1 ||
@@ -2868,6 +2941,26 @@ int BRMerkleBlockTests()
         r = 0, fprintf(stderr, "***FAILED*** %s: testnet25 genesis validation\n", __func__);
 
     if (g) BRMerkleBlockFree(g);
+
+    uint8_t odo650[80] = {
+        0x02, 0x0e, 0x00, 0x20, 0xa9, 0x93, 0x4a, 0x90, 0xac, 0xb4, 0x73, 0xb1, 0xe0, 0x96, 0xce, 0x4c,
+        0xe8, 0x0c, 0x8e, 0x26, 0x60, 0x9b, 0x6d, 0xda, 0x61, 0x13, 0x84, 0xc3, 0xa0, 0x1a, 0x44, 0x1a,
+        0xaf, 0x8c, 0x24, 0x13, 0xe1, 0x83, 0x5b, 0x68, 0x59, 0x95, 0xea, 0x6d, 0xa6, 0x2d, 0x51, 0x3d,
+        0x98, 0x41, 0xa5, 0x47, 0x36, 0x53, 0xba, 0xd6, 0xbf, 0x08, 0x50, 0x50, 0xba, 0x07, 0xfc, 0x08,
+        0x18, 0x02, 0xb8, 0xd2, 0xe0, 0x5c, 0x10, 0x6a, 0xff, 0xff, 0x0f, 0x1e, 0xf6, 0x0b, 0x06, 0x00
+    };
+    BRMerkleBlock *odoBlock = BRMerkleBlockParseWithOdoInterval(odo650, sizeof(odo650),
+                                                                BRTestNetParams.odoShapechangeInterval);
+
+    if (!odoBlock ||
+        !UInt256Eq(odoBlock->blockHash,
+                   UInt256Reverse(uint256("4c3066f6b92a9943cca6b4d1ae1d5a3d1ee510906450a22354049cd52a6493e2"))))
+        r = 0, fprintf(stderr, "***FAILED*** %s: testnet25 odo block hash\n", __func__);
+
+    if (odoBlock && !BRMerkleBlockIsValid(odoBlock, 1779457248))
+        r = 0, fprintf(stderr, "***FAILED*** %s: testnet25 odo validation\n", __func__);
+
+    if (odoBlock) BRMerkleBlockFree(odoBlock);
     
     if (BRMerkleBlockSerialize(b, block2, sizeof(block2)) != sizeof(block2) ||
         memcmp(block, block2, sizeof(block2)) != 0)

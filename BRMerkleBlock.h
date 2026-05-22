@@ -95,6 +95,9 @@ BRMerkleBlock *BRMerkleBlockCopy(const BRMerkleBlock *block);
 // returns a merkle block struct that must be freed by calling BRMerkleBlockFree()
 BRMerkleBlock *BRMerkleBlockParse(const uint8_t *buf, size_t bufLen);
 
+// Parses using the supplied Odocrypt shapechange interval for proof-of-work hashes.
+BRMerkleBlock *BRMerkleBlockParseWithOdoInterval(const uint8_t *buf, size_t bufLen, uint32_t odoShapechangeInterval);
+
 // returns number of bytes written to buf, or total bufLen needed if buf is NULL (block->height is not serialized)
 size_t BRMerkleBlockSerialize(const BRMerkleBlock *block, uint8_t *buf, size_t bufLen);
 

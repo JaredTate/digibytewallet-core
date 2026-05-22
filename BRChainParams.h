@@ -26,6 +26,7 @@
 #define BRChainParams_h
 
 #include "BRMerkleBlock.h"
+#include "BRCrypto.h"
 #include <assert.h>
 
 typedef struct {
@@ -40,6 +41,7 @@ typedef struct {
     uint16_t standardPort;
     uint32_t magicNumber;
     uint64_t services;
+    uint32_t odoShapechangeInterval;
     int (*verifyDifficulty)(const BRMerkleBlock *block, const BRMerkleBlock *previous, uint32_t transitionTime);
     const BRCheckPoint *checkpoints;
     size_t checkpointsCount;
@@ -129,6 +131,7 @@ static const BRChainParams BRMainNetParams = {
     12024,       // standardPort
     0xdab6c3fa, // magicNumber
     0,          // services
+    BR_ODO_SHAPECHANGE_INTERVAL_MAINNET,
     BRMerkleBlockVerifyDifficulty,
     BRMainNetCheckpoints,
     sizeof(BRMainNetCheckpoints)/sizeof(*BRMainNetCheckpoints)
@@ -139,6 +142,7 @@ static const BRChainParams BRTestNetParams = {
     12032,      // standardPort
     0xe6b8c5fe, // magicNumber
     0,          // services
+    BR_ODO_SHAPECHANGE_INTERVAL_TESTNET25,
     BRTestNetVerifyDifficulty,
     BRTestNetCheckpoints,
     sizeof(BRTestNetCheckpoints)/sizeof(*BRTestNetCheckpoints)

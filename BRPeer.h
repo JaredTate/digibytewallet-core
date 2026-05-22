@@ -160,6 +160,9 @@ void BRPeerSetCallbacks(BRPeer *peer, void *info,
 // set earliestKeyTime to wallet creation time in order to speed up initial sync
 void BRPeerSetEarliestKeyTime(BRPeer *peer, uint32_t earliestKeyTime);
 
+// set Odocrypt shapechange interval from chain params for proof-of-work checks
+void BRPeerSetOdoShapechangeInterval(BRPeer *peer, uint32_t odoShapechangeInterval);
+
 // call this when local best block height changes (helps detect tarpit nodes)
 void BRPeerSetCurrentBlockHeight(BRPeer *peer, uint32_t currentBlockHeight);
 

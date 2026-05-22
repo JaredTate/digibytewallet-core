@@ -213,6 +213,25 @@ static size_t _BRWalletWitnessPush(uint8_t *witness, size_t witnessLen, size_t o
     return (!witness || off <= witnessLen) ? off : 0;
 }
 
+static size_t _BRWalletWitnessPushNum(uint8_t *witness, size_t witnessLen, size_t off, uint64_t n)
+{
+    uint8_t buf[9];
+    size_t len = 0;
+
+    while (n > 0 && len < sizeof(buf)) {
+        buf[len++] = (uint8_t)(n & 0xff);
+        n >>= 8;
+    }
+
+    if (n != 0) return 0;
+    if (len > 0 && (buf[len - 1] & 0x80)) {
+        if (len >= sizeof(buf)) return 0;
+        buf[len++] = 0;
+    }
+
+    return _BRWalletWitnessPush(witness, witnessLen, off, (len > 0) ? buf : NULL, len);
+}
+
 static int _BRWalletRefreshTxHashes(BRTransaction *tx)
 {
     BRTransaction *parsed = NULL;
@@ -238,9 +257,9 @@ static int _BRWalletSignDigiDollarRedeem(BRWallet *wallet, BRTransaction *tx, BR
 {
     BRDigiDollarVault vault;
     BRDigiDollarRedeemPath path = BRDigiDollarRedeemNormal;
-    uint64_t burnAmount = 0, inputAmount = 0;
+    uint64_t burnAmount = 0, inputAmount = 0, errRatio = 0;
     uint8_t script[128], control[65], leafHash[32], sig[64], empty = 0;
-    uint8_t witness[1 + 64 + 1 + sizeof(script) + 1 + sizeof(control)];
+    uint8_t witness[1 + 64 + 1 + 9 + 1 + sizeof(script) + 1 + sizeof(control)];
     size_t scriptLen = 0, controlLen = 0, witnessLen = 0;
     UInt256 md = UINT256_ZERO;
     size_t keyIndex = SIZE_MAX;
@@ -297,6 +316,11 @@ static int _BRWalletSignDigiDollarRedeem(BRWallet *wallet, BRTransaction *tx, BR
     }
 
     witnessLen = _BRWalletWitnessPush(witness, sizeof(witness), witnessLen, sig, sizeof(sig));
+    if (path == BRDigiDollarRedeemERR) {
+        errRatio = (burnAmount > 0) ? (vault.amountCents * 100) / burnAmount : 0;
+        if (errRatio == 0 || errRatio >= 100) return 0;
+        witnessLen = _BRWalletWitnessPushNum(witness, sizeof(witness), witnessLen, errRatio);
+    }
     witnessLen = _BRWalletWitnessPush(witness, sizeof(witness), witnessLen, script, scriptLen);
     witnessLen = _BRWalletWitnessPush(witness, sizeof(witness), witnessLen, control, controlLen);
     if (witnessLen == 0) return 0;
@@ -1232,6 +1256,9 @@ BRTransaction *BRWalletCreateDigiDollarMint(BRWallet *wallet, uint64_t amountCen
     assert(wallet != NULL);
 
     if (!wallet) return NULL;
+#if BITCOIN_TESTNET
+    if (currentBlockHeight < BR_DIGIDOLLAR_TESTNET25_ACTIVATION_HEIGHT) return NULL;
+#endif
 
     collateralAmount = BRDigiDollarRequiredCollateralWithSafetyMargin(amountCents, lockTier, oraclePriceMicroUSD,
                                                                       systemHealth);
@@ -1327,6 +1354,9 @@ BRTransaction *BRWalletCreateDigiDollarRedeem(BRWallet *wallet, UInt256 collater
     }
     pthread_mutex_unlock(&wallet->lock);
 
+#if BITCOIN_TESTNET
+    if (currentBlockHeight < BR_DIGIDOLLAR_TESTNET25_ACTIVATION_HEIGHT) return NULL;
+#endif
     if (currentBlockHeight < vault.lockHeight) return NULL;
     burnAmount = (systemHealth < 100) ? BRDigiDollarERRRequiredBurn(vault.amountCents, systemHealth) : vault.amountCents;
     if (burnAmount == 0) return NULL;
