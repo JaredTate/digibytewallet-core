@@ -40,20 +40,18 @@ extern "C" {
 #pragma message "mainnet build"
 #endif
 
-// DigiByte address prefixes used by DigiByte Core v8.26.x.
+// See https://en.bitcoin.it/wiki/List_of_address_prefixes and
+// https://github.com/libbitcoin/libbitcoin/wiki/Altcoin-Version-Mappings
 #define DIGIBYTE_PUBKEY_LEGACY                30 // "D"
-#define DIGIBYTE_SCRIPT_ADDRESS_LEGACY        5  // legacy "3"
-#define DIGIBYTE_SCRIPT_ADDRESS               63 // "S"
+#define DIGIBYTE_SCRIPT_ADDRESS_LEGACY        5  // "3"
+#define DIGIBYTE_SCRIPT_ADDRESS               63
 
 #if BITCOIN_TESTNET
 #define DIGIBYTE_PUBKEY_BECH32                "dgbt"
 #else
 #define DIGIBYTE_PUBKEY_BECH32                "dgb"
 #endif
-
-// Compatibility aliases for the original breadwallet naming.
-#define BITCOIN_PUBKEY_ADDRESS      DIGIBYTE_PUBKEY_LEGACY
-#define BITCOIN_SCRIPT_ADDRESS      DIGIBYTE_SCRIPT_ADDRESS
+    
 #define BITCOIN_PUBKEY_ADDRESS_TEST 126
 #define BITCOIN_SCRIPT_ADDRESS_TEST 140
 
@@ -70,6 +68,13 @@ extern "C" {
 #define OP_EQUALVERIFY 0x88
 #define OP_HASH160     0xa9
 #define OP_CHECKSIG    0xac
+#define OP_CHECKLOCKTIMEVERIFY 0xb1
+#define OP_DROP        0x75
+#define OP_NOT         0x91
+#define OP_VERIFY      0x69
+#define OP_DIGIDOLLAR  0xbb
+#define OP_DDVERIFY    0xbc
+#define OP_CHECKCOLLATERAL 0xbe
 #define OP_RETURN      0x6a
 
 // reads a varint from buf and stores its length in intLen if intLen is non-NULL

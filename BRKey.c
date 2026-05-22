@@ -22,16 +22,23 @@
 //  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 //  THE SOFTWARE.
 
+/*
+ * ToDo: Replace DIGIBYTE_PUBKEY_LEGACY
+*/
+
 #include "BRKey.h"
 #include "BRAddress.h"
 #include "BRBase58.h"
+#include "BRBech32.h"
+
 #include <stdio.h>
 #include <string.h>
 #include <assert.h>
 #include <pthread.h>
 
-#define BITCOIN_PRIVKEY      128
-#define BITCOIN_PRIVKEY_TEST 254
+#define BITCOIN_PRIVKEY        128
+#define BITCOIN_PRIVKEY_LEGACY 158
+#define BITCOIN_PRIVKEY_TEST   254
 
 #if __BIG_ENDIAN__ || (defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__) ||\
     __ARMEB__ || __THUMBEB__ || __AARCH64EB__ || __MIPSEB__
@@ -138,7 +145,12 @@ int BRPrivKeyIsValid(const char *privKey)
 #if BITCOIN_TESTNET
         r = (data[0] == BITCOIN_PRIVKEY_TEST);
 #else
-        r = (data[0] == BITCOIN_PRIVKEY);
+        if(data[0] == BITCOIN_PRIVKEY) {
+            r = 1;
+        }
+        if(data[0] == BITCOIN_PRIVKEY_LEGACY) {
+            r = 1;
+        }
 #endif
     }
     else if ((strLen == 30 || strLen == 22) && privKey[0] == 'S') { // mini private key format
@@ -353,7 +365,7 @@ size_t BRKeyAddress(BRKey *key, char *addr, size_t addrLen)
     assert(key != NULL);
     
     hash = BRKeyHash160(key);
-    data[0] = BITCOIN_PUBKEY_ADDRESS;
+    data[0] = DIGIBYTE_PUBKEY_LEGACY;
 #if BITCOIN_TESTNET
     data[0] = BITCOIN_PUBKEY_ADDRESS_TEST;
 #endif
@@ -365,6 +377,33 @@ size_t BRKeyAddress(BRKey *key, char *addr, size_t addrLen)
     else addrLen = 0;
     
     return addrLen;
+}
+
+// writes the pay-to-witness-pubkeyhash address for key to addr
+// returns the number of bytes written, or addrLen needed if addr is NULL
+size_t BRKeySegwitAddress(BRKey* key, char* addr, size_t addrLen, uint8_t segwitVersion) {
+    assert(key->compressed != 0);
+    
+    uint8_t data[91] = { '\0' };
+    char result[91] = { '\0' };
+    size_t count;
+    
+    data[0] = segwitVersion;
+    data[1] = sizeof(UInt160); // ripemd160
+    
+    UInt160 hash = BRKeyHash160(key);
+    memcpy(&data[2], &hash, sizeof(UInt160));
+    
+    count = BRBech32Encode(&result[0], DIGIBYTE_PUBKEY_BECH32, &data[0]);
+    assert(count < addrLen);
+    
+    if (addr && count < addrLen)
+        // copy the result
+        memcpy(addr, &result[0], count);
+    else
+        return 0;
+    
+    return count;
 }
 
 // signs md with key and writes signature to sig

@@ -255,7 +255,7 @@ const uint8_t *BRScriptPKH(const uint8_t *script, size_t scriptLen)
 
     const uint8_t *elems[BRScriptElements(NULL, 0, script, scriptLen)], *r = NULL;
     size_t l, count = BRScriptElements(elems, sizeof(elems)/sizeof(*elems), script, scriptLen);
-
+    
     if (count == 5 && *elems[0] == OP_DUP && *elems[1] == OP_HASH160 && *elems[2] == 20 &&
         *elems[3] == OP_EQUALVERIFY && *elems[4] == OP_CHECKSIG) {
         r = BRScriptData(elems[2], &l); // pay-to-pubkey-hash
@@ -266,7 +266,7 @@ const uint8_t *BRScriptPKH(const uint8_t *script, size_t scriptLen)
     else if (count == 2 && *elems[0] == OP_0 && *elems[1] == 20) {
         r = BRScriptData(elems[1], &l); // pay-to-witness
     }
-
+    
     return r;
 }
 
@@ -339,7 +339,7 @@ size_t BRAddressFromScriptSig(char *addr, size_t addrLen, const uint8_t *script,
     uint8_t data[21];
     const uint8_t *d = NULL, *elems[BRScriptElements(NULL, 0, script, scriptLen)];
     size_t l = 0, count = BRScriptElements(elems, sizeof(elems)/sizeof(*elems), script, scriptLen);
-
+    
     data[0] = DIGIBYTE_PUBKEY_LEGACY;
 #if BITCOIN_TESTNET
     data[0] = BITCOIN_PUBKEY_ADDRESS_TEST;
@@ -423,7 +423,7 @@ size_t BRAddressScriptPubKey(uint8_t *script, size_t scriptLen, const char *addr
     }
     else {
         dataLen = BRBech32DecodeEx(hrp, data, addr, &encoding);
-
+        
         if (strcmp(hrp, bech32Prefix) == 0 && _BRAddressWitnessProgramIsValid(data, dataLen, encoding)) {
             if (script && dataLen <= scriptLen) memcpy(script, data, dataLen);
             r = (! script || dataLen <= scriptLen) ? dataLen : 0;

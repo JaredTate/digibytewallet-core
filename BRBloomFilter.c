@@ -126,8 +126,10 @@ int BRBloomFilterContainsData(const BRBloomFilter *filter, const uint8_t *data, 
 {
     uint32_t i, idx;
     
-    assert(filter != NULL);
     assert(data != NULL || dataLen == 0);
+    
+    // Exit with NOT_FOUND if filter wallet->bloomFilter is NULL (rare condition)
+    if (filter == NULL) return 0;
     
     for (i = 0; data && i < filter->hashFuncs; i++) {
         idx = _BRBloomFilterHash(filter, data, dataLen, i);

@@ -37,7 +37,7 @@
 #define _va_first(first, ...) first
 #define _va_rest(first, ...) __VA_ARGS__
 
-#if defined(TARGET_OS_MAC)
+#if defined(TARGET_OS_MAC) && defined(__OBJC__)
 #include <Foundation/Foundation.h>
 #define _peer_log(...) NSLog(__VA_ARGS__)
 #elif defined(__ANDROID__)
@@ -45,17 +45,30 @@
 #define _peer_log(...) __android_log_print(ANDROID_LOG_INFO, "bread", __VA_ARGS__)
 #else
 #include <stdio.h>
-#define _peer_log(...) printf(__VA_ARGS__)
+    #ifdef DEBUG
+        #define _peer_log(...) printf(__VA_ARGS__)
+    #else
+        #define _peer_log(...)
+    #endif
+#endif
+
+#if defined(TARGET_OS_MAC) && defined(__OBJC__)
+    #include <Foundation/Foundation.h>
+    #define debug_log(...) NSLog(__VA_ARGS__)
+#elif defined(__ANDROID__)
+    #include <android/log.h>
+    #define debug_log(...) __android_log_print(ANDROID_LOG_DEBUG, "digiwallet", __VA_ARGS__)
+#else
+    #include <stdio.h>
+    #ifdef DEBUG
+        #define debug_log(...) printf(__VA_ARGS__)
+    #else
+        #define debug_log(...)
+    #endif
 #endif
 
 #ifdef __cplusplus
 extern "C" {
-#endif
-
-#if BITCOIN_TESTNET
-#define STANDARD_PORT 12026
-#else
-#define STANDARD_PORT 12024
 #endif
 
 #define SERVICES_NODE_NETWORK 0x01 // services value indicating a node carries full blocks, not just headers
@@ -66,28 +79,29 @@ extern "C" {
 #define USER_AGENT "/digiwallet:" BR_VERSION "/"
 
 // explanation of message types at: https://en.bitcoin.it/wiki/Protocol_specification
-#define MSG_VERSION     "version"
-#define MSG_VERACK      "verack"
-#define MSG_ADDR        "addr"
-#define MSG_INV         "inv"
-#define MSG_GETDATA     "getdata"
-#define MSG_NOTFOUND    "notfound"
-#define MSG_GETBLOCKS   "getblocks"
-#define MSG_GETHEADERS  "getheaders"
-#define MSG_TX          "tx"
-#define MSG_BLOCK       "block"
-#define MSG_HEADERS     "headers"
-#define MSG_GETADDR     "getaddr"
-#define MSG_MEMPOOL     "mempool"
-#define MSG_PING        "ping"
-#define MSG_PONG        "pong"
-#define MSG_FILTERLOAD  "filterload"
-#define MSG_FILTERADD   "filteradd"
-#define MSG_FILTERCLEAR "filterclear"
-#define MSG_MERKLEBLOCK "merkleblock"
-#define MSG_ALERT       "alert"
-#define MSG_REJECT      "reject"   // described in BIP61: https://github.com/bitcoin/bips/blob/master/bip-0061.mediawiki
-#define MSG_FEEFILTER   "feefilter"// described in BIP133 https://github.com/bitcoin/bips/blob/master/bip-0133.mediawiki
+#define MSG_VERSION      "version"
+#define MSG_VERACK       "verack"
+#define MSG_ADDR         "addr"
+#define MSG_INV          "inv"
+#define MSG_GETDATA      "getdata"
+#define MSG_NOTFOUND     "notfound"
+#define MSG_GETBLOCKS    "getblocks"
+#define MSG_GETHEADERS   "getheaders"
+#define MSG_TX           "tx"
+#define MSG_DANDELION_TX "dandeliontx"
+#define MSG_BLOCK        "block"
+#define MSG_HEADERS      "headers"
+#define MSG_GETADDR      "getaddr"
+#define MSG_MEMPOOL      "mempool"
+#define MSG_PING         "ping"
+#define MSG_PONG         "pong"
+#define MSG_FILTERLOAD   "filterload"
+#define MSG_FILTERADD    "filteradd"
+#define MSG_FILTERCLEAR  "filterclear"
+#define MSG_MERKLEBLOCK  "merkleblock"
+#define MSG_ALERT        "alert"
+#define MSG_REJECT       "reject"   // described in BIP61: https://github.com/bitcoin/bips/blob/master/bip-0061.mediawiki
+#define MSG_FEEFILTER    "feefilter"// described in BIP133 https://github.com/bitcoin/bips/blob/master/bip-0133.mediawiki
 
 #define REJECT_INVALID     0x10 // transaction is invalid for some reason (invalid signature, output value > input, etc)
 #define REJECT_SPENT       0x12 // an input is already spent
@@ -114,7 +128,7 @@ typedef struct {
 // NOTE: BRPeer functions are not thread-safe
 
 // returns a newly allocated BRPeer struct that must be freed by calling BRPeerFree()
-BRPeer *BRPeerNew(void);
+BRPeer *BRPeerNew(uint32_t magicNumber);
 
 // info is a void pointer that will be passed along with each callback call
 // void connected(void *) - called when peer handshake completes successfully

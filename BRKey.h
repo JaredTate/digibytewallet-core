@@ -96,6 +96,10 @@ UInt160 BRKeyHash160(BRKey *key);
 // writes the pay-to-pubkey-hash bitcoin address for key to addr
 // returns the number of bytes written, or addrLen needed if addr is NULL
 size_t BRKeyAddress(BRKey *key, char *addr, size_t addrLen);
+    
+// writes the pay-to-witness-pubkeyhash address for key to addr
+// returns the number of bytes written, or addrLen needed if addr is NULL
+size_t BRKeySegwitAddress(BRKey* key, char* addr, size_t addrLen, uint8_t segwitVersion);
 
 // signs md with key and writes signature to sig
 // returns the number of bytes written, or sigLen needed if sig is NULL

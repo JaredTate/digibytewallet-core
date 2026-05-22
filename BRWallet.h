@@ -32,18 +32,54 @@
 #include "BRInt.h"
 #include <string.h>
 
+#define wallet_log(...) _wallet_log("%s:%"PRIu16" " _va_first(__VA_ARGS__, NULL) "\n", _va_rest(__VA_ARGS__, NULL))
+#define _va_first(first, ...) first
+#define _va_rest(first, ...) __VA_ARGS__
+
+#if defined(TARGET_OS_MAC) && defined(__OBJC__)
+#include <Foundation/Foundation.h>
+#define _wallet_log(...) NSLog(__VA_ARGS__)
+#elif defined(__ANDROID__)
+#include <android/log.h>
+#define _wallet_log(...) __android_log_print(ANDROID_LOG_DEBUG, "digiwallet", __VA_ARGS__)
+#else
+#include <stdio.h>
+    #ifdef DEBUG
+        #define _wallet_log(...) printf(__VA_ARGS__)
+    #else
+        #define _wallet_log(...)
+    #endif
+#endif
+
+#if defined(TARGET_OS_MAC) && defined(__OBJC__)
+    #include <Foundation/Foundation.h>
+    #define debug_log(...) NSLog(__VA_ARGS__)
+#elif defined(__ANDROID__)
+    #include <android/log.h>
+    #define debug_log(...) __android_log_print(ANDROID_LOG_DEBUG, "digiwallet", __VA_ARGS__)
+#else
+    #include <stdio.h>
+    #ifdef DEBUG
+        #define debug_log(...) printf(__VA_ARGS__)
+    #else
+        #define debug_log(...)
+    #endif
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-#define DEFAULT_FEE_PER_KB 10000000// default fee-per-kb to match standard fee on 191byte tx
-#define MIN_FEE_PER_KB     10000000// default fee-per-kb to match standard fee on 191byte tx
-#define MAX_FEE_PER_KB     100000000 // slightly higher than a 1000bit fee on 191byte tx
+#define DEFAULT_FEE_PER_KB ((5000ULL*1000 + 99)/100) // bitcoind 0.11 min relay fee on 100bytes
+#define MIN_FEE_PER_KB     ((TX_FEE_PER_KB*1000 + 190)/191) // minimum relay fee on a 191byte tx
+#define MAX_FEE_PER_KB     ((1000100ULL*1000 + 190)/191) // slightly higher than a 10000bit fee on a 191byte tx
 
 typedef struct {
     UInt256 hash;
     uint32_t n;
 } BRUTXO;
+    
+
 
 inline static size_t BRUTXOHash(const void *utxo)
 {
@@ -58,7 +94,7 @@ inline static int BRUTXOEq(const void *utxo, const void *otherUtxo)
 }
 
 typedef struct BRWalletStruct BRWallet;
-
+    
 // allocates and populates a BRWallet struct that must be freed by calling BRWalletFree()
 BRWallet *BRWalletNew(BRTransaction *transactions[], size_t txCount, BRMasterPubKey mpk);
 
@@ -81,18 +117,22 @@ void BRWalletSetCallbacks(BRWallet *wallet, void *info,
 // this function writes to addrs an array of <gapLimit> unused addresses following the last used address in the chain
 // the internal chain is used for change addresses and the external chain for receive addresses
 // addrs may be NULL to only generate addresses for BRWalletContainsAddress()
+// nativeSegwit to generate a native segwit address
 // returns the number addresses written to addrs
-size_t BRWalletUnusedAddrs(BRWallet *wallet, BRAddress addrs[], uint32_t gapLimit, int internal);
+size_t BRWalletUnusedAddrs(BRWallet *wallet, BRAddress addrs[], uint32_t gapLimit, int internal, int nativeSegwit);
 
 // writes unused DigiDollar addresses backed by P2TR x-only keys from the same wallet chain
 size_t BRWalletUnusedDigiDollarAddrs(BRWallet *wallet, BRAddress addrs[], uint32_t gapLimit, int internal);
 
 // returns the first unused external address
-BRAddress BRWalletReceiveAddress(BRWallet *wallet);
+BRAddress BRWalletReceiveAddress(BRWallet *wallet, int useSegwit);
 
 // returns the first unused external DigiDollar address
 BRAddress BRWalletDigiDollarReceiveAddress(BRWallet *wallet);
 
+// returns the first unused internal address
+BRAddress BRWalletInternalChangeAddress(BRWallet *wallet);
+    
 // writes all addresses previously genereated with BRWalletUnusedAddrs() to addrs
 // returns the number addresses written, or total number available if addrs is NULL
 size_t BRWalletAllAddrs(BRWallet *wallet, BRAddress addrs[], size_t addrsCount);
@@ -130,6 +170,9 @@ uint64_t BRWalletDigiDollarBalance(BRWallet *wallet);
 // writes unspent DigiDollar token outputs to utxos and returns the number available if utxos is NULL
 size_t BRWalletDigiDollarUTXOs(BRWallet *wallet, BRDigiDollarUTXO utxos[], size_t utxosCount);
 
+// writes active DigiDollar collateral vaults to vaults and returns the number available if vaults is NULL
+size_t BRWalletDigiDollarVaults(BRWallet *wallet, BRDigiDollarVault vaults[], size_t vaultsCount);
+
 // fee-per-kb of transaction size to use when creating a transaction
 uint64_t BRWalletFeePerKb(BRWallet *wallet);
 void BRWalletSetFeePerKb(BRWallet *wallet, uint64_t feePerKb);
@@ -141,6 +184,23 @@ BRTransaction *BRWalletCreateTransaction(BRWallet *wallet, uint64_t amount, cons
 // returns an unsigned transaction that satisifes the given transaction outputs
 // result must be freed using BRTransactionFree()
 BRTransaction *BRWalletCreateTxForOutputs(BRWallet *wallet, const BRTxOutput outputs[], size_t outCount);
+
+// returns an unsigned DigiDollar transfer transaction, funded with wallet DGB inputs for fees
+// result must be freed using BRTransactionFree()
+BRTransaction *BRWalletCreateDigiDollarTransfer(BRWallet *wallet, uint64_t amountCents, const char *digiDollarAddr);
+
+// returns an unsigned DigiDollar mint transaction, funded with wallet DGB inputs for collateral and fees
+// result must be freed using BRTransactionFree()
+BRTransaction *BRWalletCreateDigiDollarMint(BRWallet *wallet, uint64_t amountCents, uint32_t lockTier,
+                                            uint32_t currentBlockHeight, uint64_t oraclePriceMicroUSD,
+                                            int32_t systemHealth);
+
+// returns an unsigned full-position DigiDollar redeem transaction for an active collateral vault
+// result must be freed using BRTransactionFree()
+BRTransaction *BRWalletCreateDigiDollarRedeem(BRWallet *wallet, UInt256 collateralHash, uint32_t collateralIndex,
+                                              uint32_t currentBlockHeight, int32_t systemHealth);
+
+int BRWalletGetAddressPrivateKey(BRWallet* wallet, BRKey* key, const char* address, size_t addressLen, const void *seed, size_t seedLen);
 
 // signs any inputs in tx that can be signed using private keys from the wallet
 // forkId is 0 for bitcoin, 0x40 for b-cash
@@ -168,6 +228,8 @@ int BRWalletTransactionIsPending(BRWallet *wallet, const BRTransaction *tx);
 
 // true if tx is considered 0-conf safe (valid and not pending, timestamp is greater than 0, and no unverified inputs)
 int BRWalletTransactionIsVerified(BRWallet *wallet, const BRTransaction *tx);
+
+void BRFixAssetInputs(BRWallet *wallet, BRTransaction *assetTransaction);
 
 // set the block heights and timestamps for the given transactions
 // use height TX_UNCONFIRMED and timestamp 0 to indicate a tx should remain marked as unverified (not 0-conf safe)
@@ -206,6 +268,9 @@ uint64_t BRWalletFeeForTxSize(BRWallet *wallet, size_t size);
 
 // fee that will be added for a transaction of the given amount
 uint64_t BRWalletFeeForTxAmount(BRWallet *wallet, uint64_t amount);
+    
+// fee that will be added for a transaction of the given amount, without failing due to missing balances
+uint64_t BRWalletForceFeeForTxAmount(BRWallet *wallet, uint64_t amount);
 
 // outputs below this amount are uneconomical due to fees (TX_MIN_OUTPUT_AMOUNT is the absolute minimum output amount)
 uint64_t BRWalletMinOutputAmount(BRWallet *wallet);
@@ -223,6 +288,22 @@ int64_t BRLocalAmount(int64_t amount, double price);
 // returns the given local currency amount in satoshis
 // price is local currency units (i.e. pennies, pence) per bitcoin
 int64_t BRBitcoinAmount(int64_t localAmount, double price);
+
+BRUTXO * BRGetUTXO(BRWallet *wallet);
+
+int BRWalletUtxoIsAsset(BRWallet* wallet, BRUTXO* utxo);
+
+int BRWalletHasAssetUtxo(BRWallet* wallet, const char* txid, int index);
+
+int BRWalletUtxoSpendable(BRWallet* wallet, const char* txid, int index);
+
+void BRWalletPrintUtxos(BRWallet* wallet);
+
+BRTransaction* BRGetTransactions(BRWallet *wallet);
+
+BRTransaction * BRGetTxForUTXO(BRWallet *wallet, BRUTXO utxo);
+
+uint8_t BROutputSpendable(BRWallet *wallet, const BRTxOutput output);
 
 #ifdef __cplusplus
 }

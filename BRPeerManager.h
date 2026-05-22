@@ -29,6 +29,7 @@
 #include "BRMerkleBlock.h"
 #include "BRTransaction.h"
 #include "BRWallet.h"
+#include "BRChainParams.h"
 #include <stddef.h>
 #include <inttypes.h>
 
@@ -38,12 +39,45 @@ extern "C" {
 
 #define PEER_MAX_CONNECTIONS 3
 
+/* defines, how many blocks to be held in sqlite DB */
+#define SAVE_BLOCK_COUNT 300
+#define SAVE_BLOCK_INTERVAL 4000
+    
+/* OPTIONS FOR CLEARING MEMORY */
+/*
+Remarks:
+    The authors of the original breadwallet core ensure that the application
+    contains at least 2016 blocks, until a difficulty transition block gets relayed.
+    Since Digibyte makes use of DigiShield (or more specifically MultiShield), on each and
+    every block there occurs a difficulty transition.
+    We need to keep some blocks in memory in case of forks, to walk the chain backwards.
+    To clear memory we have introduced a trigger value: CLEAR_MEM_BLOCKS_COUNT_TRIGGER.
+    If the BRPeerManager instance contains more than CLEAR_MEM_BLOCKS_COUNT_TRIGGER blocks in 'blocks',
+    we trigger the memory cleanup. The first CLEAR_MEM_BLOCKS_COUNT_TAIL_LEN blocks will be freed up.
+    Note that we have to remove the tail, that is, we have to walk back the chain, until we reach the tail,
+    then free up the remaining blocks.
+ 
+    CLEAR_MEM_BLOCKS_COUNT_TAIL_LEN is at least the SAVE_BLOCK_COUNT
+        plus a reserve of CLEAR_MEM_BLOCKS_RESERVE_COUNT blocks.
+*/
+#define CLEAR_MEM_BLOCKS_COUNT_TRIGGER 5000
+#define CLEAR_MEM_BLOCKS_RESERVE_COUNT 500
+#define CLEAR_MEM_BLOCKS_COUNT_TAIL_LEN (CLEAR_MEM_BLOCKS_COUNT_TRIGGER - SAVE_BLOCK_COUNT - CLEAR_MEM_BLOCKS_RESERVE_COUNT)
+    
+/* Readability constants */
+#define ADD_TO_SAVED_BLOCKS 0
+#define REPLACE_SAVED_BLOCKS 1
+
 typedef struct BRPeerManagerStruct BRPeerManager;
 
 // returns a newly allocated BRPeerManager struct that must be freed by calling BRPeerManagerFree()
-BRPeerManager *BRPeerManagerNew(BRWallet *wallet, uint32_t earliestKeyTime, BRMerkleBlock *blocks[], size_t blocksCount,
-                                const BRPeer peers[], size_t peersCount);
+BRPeerManager* BRPeerManagerNew(const BRChainParams* params, BRWallet* wallet, uint32_t earliestKeyTime,
+                                BRMerkleBlock* blocks[], size_t blocksCount, const BRPeer peers[], size_t peersCount);
 
+// Extension of the above. Accepts a custom initial block
+BRPeerManager* BRPeerManagerNewEx(const BRChainParams* params, BRWallet* wallet, uint32_t earliestKeyTime,
+                                  BRMerkleBlock* blocks[], size_t blocksCount, const BRPeer peers[], size_t peersCount, BRMerkleBlock* startSyncFrom);
+    
 // not thread-safe, set callbacks once before calling BRPeerManagerConnect()
 // info is a void pointer that will be passed along with each callback call
 // void syncStarted(void *) - called when blockchain syncing starts
@@ -59,7 +93,7 @@ void BRPeerManagerSetCallbacks(BRPeerManager *manager, void *info,
                                void (*syncStarted)(void *info),
                                void (*syncStopped)(void *info, int error),
                                void (*txStatusUpdate)(void *info),
-                               void (*saveBlocks)(void *info, int replace, BRMerkleBlock *blocks[], size_t blocksCount),
+                               void (*saveBlocks)(void *info, int replace, BRMerkleBlock *blocks[], size_t blocksCount, uint64_t* memIntegrityCheck),
                                void (*savePeers)(void *info, int replace, const BRPeer peers[], size_t peersCount),
                                int (*networkIsReachable)(void *info),
                                void (*threadCleanup)(void *info));
@@ -68,8 +102,11 @@ void BRPeerManagerSetCallbacks(BRPeerManager *manager, void *info,
 // set address to UINT128_ZERO to revert to default behavior
 void BRPeerManagerSetFixedPeer(BRPeerManager *manager, UInt128 address, uint16_t port);
 
-// true if currently connected to at least one peer
-int BRPeerManagerIsConnected(BRPeerManager *manager);
+// sets a custom start block
+void BRPeerManagerSetStartBlock(BRPeerManager* manager, BRMerkleBlock* start);
+    
+// current connect status
+BRPeerStatus BRPeerManagerConnectStatus(BRPeerManager *manager);
 
 // connect to bitcoin peer-to-peer network (also call this whenever networkIsReachable() status changes)
 void BRPeerManagerConnect(BRPeerManager *manager);
@@ -109,6 +146,30 @@ size_t BRPeerManagerRelayCount(BRPeerManager *manager, UInt256 txHash);
 
 // frees memory allocated for manager (call BRPeerManagerDisconnect() first if connected)
 void BRPeerManagerFree(BRPeerManager *manager);
+	
+/*
+ * The following two methods sync the blockchain beginning from startBlock.
+ *
+ * Usage: Create a custom merkle block and pass it to BPPeerManagerMainNetNewEx()
+ *     BRMerkleBlock* test = BRMerkleBlockNew();
+ *     test->blockHash = UInt256Reverse(uint256("7497ea1b465eb39f1c8f507bc877078fe016d6fcb6dfad3a64c98dcc6e1e8496"));
+ *     test->height = 0;
+ *     test->timestamp = 1389388394;
+ *     test->target = 0x1e0ffff0;
+ */
+
+BRPeerManager* BPPeerManagerMainNetNewEx(BRWallet *wallet, uint32_t earliestKeyTime, BRMerkleBlock *blocks[], size_t blocksCount, const BRPeer peers[], size_t peersCount, BRMerkleBlock* startBlock);
+
+BRPeerManager* BPPeerManagerTestNetNewEx(BRWallet *wallet, uint32_t earliestKeyTime, BRMerkleBlock *blocks[], size_t blocksCount, const BRPeer peers[], size_t peersCount, BRMerkleBlock* startBlock);
+    
+// function to create Peermanager under for the mainnet directly
+BRPeerManager *BPPeerManagerMainNetNew(BRWallet *wallet, uint32_t earliestKeyTime,
+									   BRMerkleBlock *blocks[], size_t blocksCount, const BRPeer peers[], size_t peersCount);
+
+// function to create Peermanager under for the testnet directly
+BRPeerManager *BPPeerManagerTestNetNew(BRWallet *wallet, uint32_t earliestKeyTime,
+									   BRMerkleBlock *blocks[], size_t blocksCount, const BRPeer peers[], size_t peersCount);
+
 
 #ifdef __cplusplus
 }

@@ -33,6 +33,7 @@
 
 #define MAX_PROOF_OF_WORK 0x1e0fffff    // highest value for difficulty target (higher values are less difficult)
 #define TARGET_TIMESPAN (0.10*24*60*60) // the targeted timespan between difficulty target adjustments
+#define BLOCK_VERSION_ALGO_MASK (15 << 8)
 
 inline static int _ceil_log2(int x)
 {
@@ -83,6 +84,19 @@ BRMerkleBlock *BRMerkleBlockNew(void)
     return block;
 }
 
+// returns a deep copy of block and that must be freed by calling BRMerkleBlockFree()
+BRMerkleBlock *BRMerkleBlockCopy(const BRMerkleBlock *block)
+{
+    BRMerkleBlock *cpy = BRMerkleBlockNew();
+
+    assert(block != NULL);
+    *cpy = *block;
+    cpy->hashes = NULL;
+    cpy->flags = NULL;
+    BRMerkleBlockSetTxHashes(cpy, block->hashes, block->hashesCount, block->flags, block->flagsLen);
+    return cpy;
+}
+
 // buf must contain either a serialized merkleblock or header
 // returns a merkle block struct that must be freed by calling BRMerkleBlockFree()
 BRMerkleBlock *BRMerkleBlockParse(const uint8_t *buf, size_t bufLen)
@@ -123,7 +137,45 @@ BRMerkleBlock *BRMerkleBlockParse(const uint8_t *buf, size_t bufLen)
         }
         
         BRSHA256_2(&block->blockHash, buf, 80);
-        BRScrypt(&block->powHash, sizeof(block->powHash), buf, 80, buf, 80, 1024, 1, 1);
+
+        switch (block->version & BLOCK_VERSION_ALGO_MASK) {
+            case BLOCK_VERSION_SHA256D:
+                // void BRSHA256_2(void *md32, const void *data, size_t len)
+                BRSHA256_2(&block->powHash, buf, 80);
+                break;
+
+            case BLOCK_VERSION_SKEIN:
+                // void BRSkein(const char* input, char* output)
+                BRSkein((const char*) buf, (char*) &block->powHash.u8[0]);
+                break;
+
+            case BLOCK_VERSION_QUBIT:
+                // void BRQubit(const char* input, char* output)
+                BRQubit((const char*) buf, (char*) &block->powHash.u8[0]);
+                break;
+
+            case BLOCK_VERSION_ODO:
+                // void BROdocrypt(const char* input, const uint32_t nTime, uint8_t* output)
+                BROdocrypt((const char*) buf, block->timestamp, &block->powHash.u8[0]);
+                break;
+                
+            case BLOCK_VERSION_GROESTL:
+                // void BRGroestl(const char* input, char* output)
+                BRGroestl((const char*) buf, (char*) &block->powHash.u8[0]);
+                break;
+
+            case BLOCK_VERSION_SCRYPT:
+                // void BRScrypt(void *dk, size_t dkLen, const void *pw, size_t pwLen, const void *salt, size_t saltLen, unsigned n, unsigned r, unsigned p)
+                BRScrypt(&block->powHash, sizeof(block->powHash), buf, 80, buf, 80, 1024, 1, 1);
+                break;
+                
+            default:
+#if DEBUG
+                assert(0 && "Invalid algorithm");
+#else
+                break;
+#endif
+        }
     }
     
     return block;
@@ -270,14 +322,14 @@ int BRMerkleBlockIsValid(const BRMerkleBlock *block, uint32_t currentTime)
     if (block->totalTx > 0 && ! UInt256Eq(merkleRoot, block->merkleRoot)) {
         r = 0;
 
-        digi_log("invalid merkleRoot: %s - %s", u256_hex_encode(merkleRoot), u256_hex_encode(block->merkleRoot));
+        digi_log("invalid merkleRoot: %s - %s", u256hex(merkleRoot), u256hex(block->merkleRoot));
     }
     
     // check if timestamp is too far in future
     if (block->timestamp > currentTime + BLOCK_MAX_TIME_DRIFT) {
         r = 0;
 
-        digi_log("timestamp too far in future for block (%s, height = %d): %d - %d", u256_hex_encode(block->blockHash), block->height, block->timestamp, (currentTime + BLOCK_MAX_TIME_DRIFT));
+        digi_log("timestamp too far in future for block (%s, height = %d): %d - %d", u256hex(block->blockHash), block->height, block->timestamp, (currentTime + BLOCK_MAX_TIME_DRIFT));
     }
     
     // check if proof-of-work target is out of range
@@ -295,7 +347,7 @@ int BRMerkleBlockIsValid(const BRMerkleBlock *block, uint32_t currentTime)
         if (block->powHash.u8[i] > t.u8[i]) {
             r = 0;
 
-            digi_log("invalid blockHash[%d]: %x - %x", i, block->powHash.u8[i], t.u8[i]);
+            digi_log("invalid blockHash[%d]: %x - %x, %s", i, block->powHash.u8[i], t.u8[i], log_u256_hex_encode(block->blockHash));
         }
     }
 
@@ -321,29 +373,21 @@ int BRMerkleBlockContainsTxHash(const BRMerkleBlock *block, UInt256 txHash)
 // transitionTime is the timestamp of the block at the previous difficulty transition
 // transitionTime may be 0 if block->height is not a multiple of BLOCK_DIFFICULTY_INTERVAL
 //
-// The difficulty target algorithm works as follows:
-// The target must be the same as in the previous block unless the block's height is a multiple of 2016. Every 2016
-// blocks there is a difficulty transition where a new difficulty is calculated. The new target is the previous target
-// multiplied by the time between the last transition block's timestamp and this one (in seconds), divided by the
-// targeted time between transitions (14*24*60*60 seconds). If the new difficulty is more than 4x or less than 1/4 of
-// the previous difficulty, the change is limited to either 4x or 1/4. There is also a minimum difficulty value
-// intuitively named MAX_PROOF_OF_WORK... since larger values are less difficult.
+// The difficulty target algorithm is called Multishield.
 int BRMerkleBlockVerifyDifficulty(const BRMerkleBlock *block, const BRMerkleBlock *previous, uint32_t transitionTime)
 {
     int r = 1;
-    
     assert(block != NULL);
-    assert(previous != NULL);
     
-    if (! previous || !UInt256Eq(block->prevBlock, previous->blockHash) || block->height != previous->height + 1) r = 0;
-    if (r && (block->height % BLOCK_DIFFICULTY_INTERVAL) == 0 && transitionTime == 0) r = 0;
-    
+    if (!previous || !UInt256Eq(block->prevBlock, previous->blockHash) || block->height != previous->height + 1)
+        r = 0;
+
 #if BITCOIN_TESTNET
     // TODO: implement testnet difficulty rule check
     return r; // don't worry about difficulty on testnet for now
 #endif
 
-    // TODO: fix difficulty target check for Digibyte
+    // TODO: fix difficulty target check for Digibyte (Multishield)
     /*if (r && (block->height % BLOCK_DIFFICULTY_INTERVAL) == 0) {
         // target is in "compact" format, where the most significant byte is the size of resulting value in bytes, next
         // bit is the sign, and the remaining 23bits is the value after having been right shifted by (size - 3)*8 bits

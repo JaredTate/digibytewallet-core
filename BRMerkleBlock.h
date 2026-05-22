@@ -29,7 +29,7 @@
 #include <stddef.h>
 #include <inttypes.h>
 
-#if defined(TARGET_OS_MAC)
+#if defined(TARGET_OS_MAC) && defined(__OBJC__)
 #include <Foundation/Foundation.h>
 #define digi_log(...) NSLog(__VA_ARGS__)
 #elif defined(__ANDROID__)
@@ -44,7 +44,7 @@
 extern "C" {
 #endif
 
-#define BLOCK_DIFFICULTY_INTERVAL 144 // number of blocks between difficulty target adjustments
+#define BLOCK_DIFFICULTY_INTERVAL 1 // number of blocks between difficulty target adjustments
 #define BLOCK_UNKNOWN_HEIGHT      INT32_MAX
 #define BLOCK_MAX_TIME_DRIFT      (2*60*60) // the furthest in the future a block is allowed to be timestamped
 
@@ -64,12 +64,32 @@ typedef struct {
     size_t flagsLen;
     uint32_t height;
 } BRMerkleBlock;
+    
+// Taken from https://github.com/digibyte/digibyte/blob/ce4e150f6d77abdd533a3b289ffd9f19fe8af277/src/primitives/block.h
+typedef enum {
+    // primary version
+    BLOCK_VERSION_DEFAULT        = 2,
+    
+    // algo
+    BLOCK_VERSION_ALGO           = (15 << 8),
+    BLOCK_VERSION_SCRYPT         = (0 << 8),
+    BLOCK_VERSION_SHA256D        = (2 << 8), // 512
+    BLOCK_VERSION_GROESTL        = (4 << 8), // 1024
+    BLOCK_VERSION_SKEIN          = (6 << 8), // 1536
+    BLOCK_VERSION_QUBIT          = (8 << 8), // 2048
+    //BLOCK_VERSION_EQUIHASH       = (10 << 8),
+    //BLOCK_VERSION_ETHASH         = (12 << 8),
+    BLOCK_VERSION_ODO            = (14 << 8), // 3584
+} BLOCKHASH_ALGO;
 
 #define BR_MERKLE_BLOCK_NONE\
     ((BRMerkleBlock) { UINT256_ZERO, 0, UINT256_ZERO, UINT256_ZERO, 0, 0, 0, 0, NULL, 0, NULL, 0, 0 })
 
 // returns a newly allocated merkle block struct that must be freed by calling BRMerkleBlockFree()
 BRMerkleBlock *BRMerkleBlockNew(void);
+
+// returns a deep copy of block and that must be freed by calling BRMerkleBlockFree()
+BRMerkleBlock *BRMerkleBlockCopy(const BRMerkleBlock *block);
 
 // buf must contain either a serialized merkleblock or header
 // returns a merkle block struct that must be freed by calling BRMerkleBlockFree()
