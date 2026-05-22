@@ -1798,6 +1798,137 @@ int BRDigiDollarTests()
     return r;
 }
 
+static void _BRDigiDollarTestAddSignedInput(BRTransaction *tx, UInt256 prevHash, uint32_t index)
+{
+    uint8_t script[] = { OP_1 };
+    uint8_t signature[] = { OP_1 };
+
+    BRTransactionAddInput(tx, prevHash, index, 1, script, sizeof(script), signature, sizeof(signature), TXIN_SEQUENCE);
+}
+
+static BRTransaction *_BRDigiDollarTestMintTx(UInt256 txHash, const uint8_t tokenKey[BR_DIGIDOLLAR_XONLY_KEY_LENGTH],
+                                              uint64_t amountCents, uint32_t blockHeight)
+{
+    UInt256 prevHash = u256_hex_decode("1000000000000000000000000000000000000000000000000000000000000000");
+    uint8_t collateralKey[BR_DIGIDOLLAR_XONLY_KEY_LENGTH], collateralScript[34], tokenScript[34], opReturn[128];
+    BRTransaction *tx = BRTransactionNew();
+
+    memset(collateralKey, 0x42, sizeof(collateralKey));
+    tx->txHash = txHash;
+    tx->version = BRDigiDollarMakeVersion(BRDigiDollarTxMint, 0);
+    tx->blockHeight = blockHeight;
+    tx->timestamp = 1;
+    _BRDigiDollarTestAddSignedInput(tx, prevHash, 0);
+    BRDigiDollarP2TRScriptPubKey(collateralScript, sizeof(collateralScript), collateralKey);
+    BRDigiDollarP2TRScriptPubKey(tokenScript, sizeof(tokenScript), tokenKey);
+    size_t opReturnLen = BRDigiDollarBuildMintOpReturn(opReturn, sizeof(opReturn), amountCents,
+                                                       blockHeight + BRDigiDollarLockTierBlocks(0), 0, tokenKey);
+    BRTransactionAddOutput(tx, SATOSHIS, collateralScript, sizeof(collateralScript));
+    BRTransactionAddOutput(tx, 0, tokenScript, sizeof(tokenScript));
+    BRTransactionAddOutput(tx, 0, opReturn, opReturnLen);
+
+    return tx;
+}
+
+static BRTransaction *_BRDigiDollarTestTransferTx(UInt256 txHash, UInt256 inputHash, uint32_t inputIndex,
+                                                  const uint8_t externalKey[BR_DIGIDOLLAR_XONLY_KEY_LENGTH],
+                                                  const uint8_t changeKey[BR_DIGIDOLLAR_XONLY_KEY_LENGTH],
+                                                  uint64_t externalAmount, uint64_t changeAmount)
+{
+    uint8_t externalScript[34], changeScript[34], opReturn[128];
+    uint64_t amounts[] = { externalAmount, changeAmount };
+    BRTransaction *tx = BRTransactionNew();
+
+    tx->txHash = txHash;
+    tx->version = BRDigiDollarMakeVersion(BRDigiDollarTxTransfer, 0);
+    tx->blockHeight = 101;
+    tx->timestamp = 2;
+    _BRDigiDollarTestAddSignedInput(tx, inputHash, inputIndex);
+    BRDigiDollarP2TRScriptPubKey(externalScript, sizeof(externalScript), externalKey);
+    BRDigiDollarP2TRScriptPubKey(changeScript, sizeof(changeScript), changeKey);
+    size_t opReturnLen = BRDigiDollarBuildTransferOpReturn(opReturn, sizeof(opReturn),
+                                                           amounts, sizeof(amounts)/sizeof(*amounts));
+    BRTransactionAddOutput(tx, 0, externalScript, sizeof(externalScript));
+    BRTransactionAddOutput(tx, 0, changeScript, sizeof(changeScript));
+    BRTransactionAddOutput(tx, 0, opReturn, opReturnLen);
+
+    return tx;
+}
+
+int BRDigiDollarWalletAccountingTests()
+{
+    int r = 1;
+    UInt128 seed = *(UInt128 *)"\x00\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0A\x0B\x0C\x0D\x0E\x0F";
+    BRMasterPubKey mpk = BRBIP32MasterPubKey(&seed, sizeof(seed));
+    BRWallet *wallet = BRWalletNew(NULL, 0, mpk);
+    BRAddress receiveAddress = BRWalletDigiDollarReceiveAddress(wallet);
+    BRAddress changeAddress = BR_ADDRESS_NONE;
+    uint8_t receiveKey[BR_DIGIDOLLAR_XONLY_KEY_LENGTH], changeKey[BR_DIGIDOLLAR_XONLY_KEY_LENGTH];
+    uint8_t externalKey[BR_DIGIDOLLAR_XONLY_KEY_LENGTH];
+    BRDigiDollarNetwork network = BRDigiDollarMainNet;
+    BRDigiDollarUTXO utxos[2];
+    uint64_t amount = 0;
+    UInt256 mintHash = u256_hex_decode("2000000000000000000000000000000000000000000000000000000000000000");
+    UInt256 transferHash = u256_hex_decode("3000000000000000000000000000000000000000000000000000000000000000");
+    BRTransaction *mintTx, *transferTx;
+
+    for (size_t i = 0; i < sizeof(externalKey); i++) externalKey[i] = (uint8_t)(0xa0 + i);
+    BRWalletUnusedDigiDollarAddrs(wallet, &changeAddress, 1, 1);
+    if (!BRDigiDollarAddressDecode(receiveKey, &network, receiveAddress.s) ||
+        !BRDigiDollarAddressDecode(changeKey, &network, changeAddress.s)) {
+        r = 0, fprintf(stderr, "***FAILED*** %s: decode wallet DD addresses\n", __func__);
+    }
+
+    mintTx = _BRDigiDollarTestMintTx(mintHash, receiveKey, 10000, 100);
+    if (!BRDigiDollarTxOutputAmount(&amount, mintTx, 1) || amount != 10000 ||
+        BRDigiDollarTxOutputAmount(&amount, mintTx, 0)) {
+        r = 0, fprintf(stderr, "***FAILED*** %s: mint output amount mapping\n", __func__);
+    }
+    if (!BRWalletRegisterTransaction(wallet, mintTx))
+        r = 0, fprintf(stderr, "***FAILED*** %s: register DD mint\n", __func__);
+    if (BRWalletBalance(wallet) != 0 || BRWalletDigiDollarBalance(wallet) != 10000)
+        r = 0, fprintf(stderr, "***FAILED*** %s: mint DD balance\n", __func__);
+    if (BRWalletDigiDollarUTXOs(wallet, utxos, 2) != 1 ||
+        !UInt256Eq(utxos[0].hash, mintHash) || utxos[0].n != 1 || utxos[0].amountCents != 10000 ||
+        memcmp(utxos[0].ownerXOnlyPubKey, receiveKey, sizeof(receiveKey)) != 0) {
+        r = 0, fprintf(stderr, "***FAILED*** %s: mint DD UTXO\n", __func__);
+    }
+    if (BRWalletDigiDollarAmountReceivedFromTx(wallet, mintTx) != 10000 ||
+        BRWalletDigiDollarAmountSentByTx(wallet, mintTx) != 0 ||
+        BRWalletDigiDollarBalanceAfterTx(wallet, mintTx) != 10000) {
+        r = 0, fprintf(stderr, "***FAILED*** %s: mint DD accounting accessors\n", __func__);
+    }
+
+    transferTx = _BRDigiDollarTestTransferTx(transferHash, mintHash, 1, externalKey, changeKey, 6000, 4000);
+    if (!BRDigiDollarTxOutputAmount(&amount, transferTx, 0) || amount != 6000 ||
+        !BRDigiDollarTxOutputAmount(&amount, transferTx, 1) || amount != 4000) {
+        r = 0, fprintf(stderr, "***FAILED*** %s: transfer output amount mapping\n", __func__);
+    }
+    if (BRWalletTransactionIsPending(wallet, transferTx))
+        r = 0, fprintf(stderr, "***FAILED*** %s: DD zero-value outputs are not dust pending\n", __func__);
+    if (!BRWalletRegisterTransaction(wallet, transferTx))
+        r = 0, fprintf(stderr, "***FAILED*** %s: register DD transfer spend\n", __func__);
+    if (BRWalletDigiDollarBalance(wallet) != 4000 ||
+        BRWalletDigiDollarAmountSentByTx(wallet, transferTx) != 10000 ||
+        BRWalletDigiDollarAmountReceivedFromTx(wallet, transferTx) != 4000 ||
+        BRWalletDigiDollarBalanceAfterTx(wallet, transferTx) != 4000) {
+        r = 0, fprintf(stderr, "***FAILED*** %s: transfer DD balance\n", __func__);
+    }
+    if (BRWalletDigiDollarUTXOs(wallet, utxos, 2) != 1 ||
+        !UInt256Eq(utxos[0].hash, transferHash) || utxos[0].n != 1 || utxos[0].amountCents != 4000 ||
+        memcmp(utxos[0].ownerXOnlyPubKey, changeKey, sizeof(changeKey)) != 0) {
+        r = 0, fprintf(stderr, "***FAILED*** %s: transfer DD change UTXO\n", __func__);
+    }
+
+    BRWalletRemoveTransaction(wallet, transferHash);
+    if (BRWalletDigiDollarBalance(wallet) != 10000 || BRWalletDigiDollarUTXOs(wallet, utxos, 2) != 1)
+        r = 0, fprintf(stderr, "***FAILED*** %s: DD balance recomputes after removal\n", __func__);
+
+    BRWalletFree(wallet);
+
+    return r;
+}
+
 int BRTransactionTests()
 {
     int r = 1;
@@ -2721,6 +2852,8 @@ int BRRunTests()
     printf("%s\n", (BRBIP32SequenceTests()) ? "success" : (fail++, "***FAIL***"));
     printf("BRDigiDollarTests...                ");
     printf("%s\n", (BRDigiDollarTests()) ? "success" : (fail++, "***FAIL***"));
+    printf("BRDigiDollarWalletAccountingTests... ");
+    printf("%s\n", (BRDigiDollarWalletAccountingTests()) ? "success" : (fail++, "***FAIL***"));
     printf("BRTransactionTests...               ");
     printf("%s\n", (BRTransactionTests()) ? "success" : (fail++, "***FAIL***"));
     printf("BRWalletTests...                    ");

@@ -36,8 +36,10 @@
 
 struct BRWalletStruct {
     uint64_t balance, totalSent, totalReceived, feePerKb, *balanceHist;
+    uint64_t digiDollarBalance, digiDollarTotalSent, digiDollarTotalReceived, *digiDollarBalanceHist;
     uint32_t blockHeight;
     BRUTXO *utxos;
+    BRDigiDollarUTXO *digiDollarUtxos;
     BRTransaction **transactions;
     BRMasterPubKey masterPubKey;
     BRAddress *internalChain, *externalChain;
@@ -90,6 +92,17 @@ static int _BRWalletDigiDollarAddressForPubKey(BRAddress *address, const uint8_t
     return BRDigiDollarAddressEncode(address->s, sizeof(address->s), _BRWalletDigiDollarNetwork(), &pubKey[1]) > 0;
 }
 
+static int _BRWalletDigiDollarAddressForOutput(BRAddress *address, const BRTxOutput *output)
+{
+    assert(address != NULL);
+    assert(output != NULL);
+
+    if (!address || !output || !BRDigiDollarOutputIsP2TR(output)) return 0;
+    *address = BR_ADDRESS_NONE;
+    return BRDigiDollarAddressEncode(address->s, sizeof(address->s), _BRWalletDigiDollarNetwork(),
+                                     &output->script[2]) > 0;
+}
+
 static int _BRWalletOutputMatchesDigiDollarAddress(BRWallet *wallet, const BRTxOutput *output)
 {
     BRAddress address = BR_ADDRESS_NONE;
@@ -97,11 +110,27 @@ static int _BRWalletOutputMatchesDigiDollarAddress(BRWallet *wallet, const BRTxO
     assert(wallet != NULL);
     assert(output != NULL);
 
-    if (! output || ! BRDigiDollarOutputIsP2TR(output)) return 0;
-    if (BRDigiDollarAddressEncode(address.s, sizeof(address.s), _BRWalletDigiDollarNetwork(), &output->script[2]) == 0) {
-        return 0;
-    }
+    if (!_BRWalletDigiDollarAddressForOutput(&address, output)) return 0;
     return BRSetContains(wallet->allAddrs, &address);
+}
+
+static int _BRWalletDigiDollarZeroValueIsAllowed(const BRTransaction *tx, const BRTxOutput *output)
+{
+    if (!tx || !output || output->amount != 0 || BRDigiDollarTypeForTx(tx) == BRDigiDollarTxNone) return 0;
+    if (output->script && output->scriptLen > 0 && output->script[0] == OP_RETURN) return 1;
+
+    return BRDigiDollarOutputIsP2TR(output);
+}
+
+int BRWalletDigiDollarOutputIsMine(BRWallet *wallet, const BRTxOutput *output)
+{
+    int r = 0;
+
+    assert(wallet != NULL);
+    pthread_mutex_lock(&wallet->lock);
+    if (output) r = _BRWalletOutputMatchesDigiDollarAddress(wallet, output);
+    pthread_mutex_unlock(&wallet->lock);
+    return r;
 }
 
 inline static int _BRWalletTxIsAscending(BRWallet *wallet, const BRTransaction *tx1, const BRTransaction *tx2)
@@ -168,6 +197,7 @@ static int _BRWalletContainsTx(BRWallet *wallet, const BRTransaction *tx)
         uint32_t n = tx->inputs[i].index;
         
         if (t && n < t->outCount && BRSetContains(wallet->allAddrs, t->outputs[n].address)) r = 1;
+        if (! r && t && n < t->outCount && _BRWalletOutputMatchesDigiDollarAddress(wallet, &t->outputs[n])) r = 1;
     }
     
     return r;
@@ -187,19 +217,23 @@ static int _BRWalletContainsTx(BRWallet *wallet, const BRTransaction *tx)
 static void _BRWalletUpdateBalance(BRWallet *wallet)
 {
     int isInvalid, isPending;
-    uint64_t balance = 0, prevBalance = 0;
+    uint64_t balance = 0, prevBalance = 0, digiDollarBalance = 0, prevDigiDollarBalance = 0;
     time_t now = time(NULL);
     size_t i, j;
     BRTransaction *tx, *t;
     
     array_clear(wallet->utxos);
+    array_clear(wallet->digiDollarUtxos);
     array_clear(wallet->balanceHist);
+    array_clear(wallet->digiDollarBalanceHist);
     BRSetClear(wallet->spentOutputs);
     BRSetClear(wallet->invalidTx);
     BRSetClear(wallet->pendingTx);
     BRSetClear(wallet->usedAddrs);
     wallet->totalSent = 0;
     wallet->totalReceived = 0;
+    wallet->digiDollarTotalSent = 0;
+    wallet->digiDollarTotalReceived = 0;
 
     for (i = 0; i < array_count(wallet->transactions); i++) {
         tx = wallet->transactions[i];
@@ -214,6 +248,7 @@ static void _BRWalletUpdateBalance(BRWallet *wallet)
             if (isInvalid) {
                 BRSetAdd(wallet->invalidTx, tx);
                 array_add(wallet->balanceHist, balance);
+                array_add(wallet->digiDollarBalanceHist, digiDollarBalance);
                 continue;
             }
         }
@@ -228,6 +263,10 @@ static void _BRWalletUpdateBalance(BRWallet *wallet)
             isPending = (BRTransactionSize(tx) > TX_MAX_SIZE) ? 1 : 0; // check tx size is under TX_MAX_SIZE
             
             for (j = 0; ! isPending && j < tx->outCount; j++) {
+                if (tx->outputs[j].amount < TX_MIN_OUTPUT_AMOUNT &&
+                    tx->outputs[j].script && tx->outputs[j].script[0] == OP_RETURN) continue;
+                if (tx->outputs[j].amount < TX_MIN_OUTPUT_AMOUNT &&
+                    _BRWalletDigiDollarZeroValueIsAllowed(tx, &tx->outputs[j])) continue;
                 if (tx->outputs[j].amount < TX_MIN_OUTPUT_AMOUNT) isPending = 1; // check that no outputs are dust
             }
 
@@ -242,6 +281,7 @@ static void _BRWalletUpdateBalance(BRWallet *wallet)
             if (isPending) {
                 BRSetAdd(wallet->pendingTx, tx);
                 array_add(wallet->balanceHist, balance);
+                array_add(wallet->digiDollarBalanceHist, digiDollarBalance);
                 continue;
             }
         }
@@ -251,12 +291,29 @@ static void _BRWalletUpdateBalance(BRWallet *wallet)
         // TODO: don't add coin generation outputs < 100 blocks deep
         // NOTE: balance/UTXOs will then need to be recalculated when last block changes
         for (j = 0; j < tx->outCount; j++) {
+            BRAddress digiDollarAddress = BR_ADDRESS_NONE;
+            uint64_t digiDollarAmount = 0;
+
             if (tx->outputs[j].address[0] != '\0') {
                 BRSetAdd(wallet->usedAddrs, tx->outputs[j].address);
                 
                 if (BRSetContains(wallet->allAddrs, tx->outputs[j].address)) {
                     array_add(wallet->utxos, ((BRUTXO) { tx->txHash, (uint32_t)j }));
                     balance += tx->outputs[j].amount;
+                }
+            }
+
+            if (_BRWalletDigiDollarAddressForOutput(&digiDollarAddress, &tx->outputs[j]) &&
+                BRSetContains(wallet->allAddrs, &digiDollarAddress)) {
+                BRSetAdd(wallet->usedAddrs, &digiDollarAddress);
+
+                if (BRDigiDollarTxOutputAmount(&digiDollarAmount, tx, j)) {
+                    array_add(wallet->digiDollarUtxos, ((BRDigiDollarUTXO) {
+                        tx->txHash, (uint32_t)j, digiDollarAmount, tx->blockHeight, { 0 }
+                    }));
+                    memcpy(wallet->digiDollarUtxos[array_count(wallet->digiDollarUtxos) - 1].ownerXOnlyPubKey,
+                           &tx->outputs[j].script[2], BR_DIGIDOLLAR_XONLY_KEY_LENGTH);
+                    digiDollarBalance += digiDollarAmount;
                 }
             }
         }
@@ -268,15 +325,31 @@ static void _BRWalletUpdateBalance(BRWallet *wallet)
             balance -= t->outputs[wallet->utxos[j - 1].n].amount;
             array_rm(wallet->utxos, j - 1);
         }
+
+        for (j = array_count(wallet->digiDollarUtxos); j > 0; j--) {
+            if (! BRSetContains(wallet->spentOutputs, &wallet->digiDollarUtxos[j - 1])) continue;
+            digiDollarBalance -= wallet->digiDollarUtxos[j - 1].amountCents;
+            array_rm(wallet->digiDollarUtxos, j - 1);
+        }
         
         if (prevBalance < balance) wallet->totalReceived += balance - prevBalance;
         if (balance < prevBalance) wallet->totalSent += prevBalance - balance;
+        if (prevDigiDollarBalance < digiDollarBalance) {
+            wallet->digiDollarTotalReceived += digiDollarBalance - prevDigiDollarBalance;
+        }
+        if (digiDollarBalance < prevDigiDollarBalance) {
+            wallet->digiDollarTotalSent += prevDigiDollarBalance - digiDollarBalance;
+        }
         array_add(wallet->balanceHist, balance);
+        array_add(wallet->digiDollarBalanceHist, digiDollarBalance);
         prevBalance = balance;
+        prevDigiDollarBalance = digiDollarBalance;
     }
 
     assert(array_count(wallet->balanceHist) == array_count(wallet->transactions));
+    assert(array_count(wallet->digiDollarBalanceHist) == array_count(wallet->transactions));
     wallet->balance = balance;
+    wallet->digiDollarBalance = digiDollarBalance;
 }
 
 // allocates and populates a BRWallet struct which must be freed by calling BRWalletFree()
@@ -289,6 +362,7 @@ BRWallet *BRWalletNew(BRTransaction *transactions[], size_t txCount, BRMasterPub
     wallet = calloc(1, sizeof(*wallet));
     assert(wallet != NULL);
     array_new(wallet->utxos, 100);
+    array_new(wallet->digiDollarUtxos, 100);
     array_new(wallet->transactions, txCount + 100);
     wallet->feePerKb = DEFAULT_FEE_PER_KB;
     wallet->masterPubKey = mpk;
@@ -297,6 +371,7 @@ BRWallet *BRWalletNew(BRTransaction *transactions[], size_t txCount, BRMasterPub
     array_new(wallet->internalChainDigiDollar, 100);
     array_new(wallet->externalChainDigiDollar, 100);
     array_new(wallet->balanceHist, txCount + 100);
+    array_new(wallet->digiDollarBalanceHist, txCount + 100);
     wallet->allTx = BRSetNew(BRTransactionHash, BRTransactionEq, txCount + 100);
     wallet->invalidTx = BRSetNew(BRTransactionHash, BRTransactionEq, 10);
     wallet->pendingTx = BRSetNew(BRTransactionHash, BRTransactionEq, 10);
@@ -512,6 +587,33 @@ size_t BRWalletUTXOs(BRWallet *wallet, BRUTXO *utxos, size_t utxosCount)
 
     for (size_t i = 0; utxos && i < utxosCount; i++) {
         utxos[i] = wallet->utxos[i];
+    }
+
+    pthread_mutex_unlock(&wallet->lock);
+    return utxosCount;
+}
+
+uint64_t BRWalletDigiDollarBalance(BRWallet *wallet)
+{
+    uint64_t balance;
+
+    assert(wallet != NULL);
+    pthread_mutex_lock(&wallet->lock);
+    balance = wallet->digiDollarBalance;
+    pthread_mutex_unlock(&wallet->lock);
+    return balance;
+}
+
+size_t BRWalletDigiDollarUTXOs(BRWallet *wallet, BRDigiDollarUTXO *utxos, size_t utxosCount)
+{
+    assert(wallet != NULL);
+    pthread_mutex_lock(&wallet->lock);
+    if (! utxos || array_count(wallet->digiDollarUtxos) < utxosCount) {
+        utxosCount = array_count(wallet->digiDollarUtxos);
+    }
+
+    for (size_t i = 0; utxos && i < utxosCount; i++) {
+        utxos[i] = wallet->digiDollarUtxos[i];
     }
 
     pthread_mutex_unlock(&wallet->lock);
@@ -1018,6 +1120,10 @@ int BRWalletTransactionIsPending(BRWallet *wallet, const BRTransaction *tx)
         }
         
         for (size_t i = 0; ! r && i < tx->outCount; i++) { // check that no outputs are dust
+            if (tx->outputs[i].amount < TX_MIN_OUTPUT_AMOUNT &&
+                tx->outputs[i].script && tx->outputs[i].script[0] == OP_RETURN) continue;
+            if (tx->outputs[i].amount < TX_MIN_OUTPUT_AMOUNT &&
+                _BRWalletDigiDollarZeroValueIsAllowed(tx, &tx->outputs[i])) continue;
             if (tx->outputs[i].amount < TX_MIN_OUTPUT_AMOUNT) r = 1;
         }
         
@@ -1130,6 +1236,25 @@ uint64_t BRWalletAmountReceivedFromTx(BRWallet *wallet, const BRTransaction *tx)
     return amount;
 }
 
+uint64_t BRWalletDigiDollarAmountReceivedFromTx(BRWallet *wallet, const BRTransaction *tx)
+{
+    uint64_t amount = 0, outputAmount = 0;
+    BRAddress address = BR_ADDRESS_NONE;
+
+    assert(wallet != NULL);
+    assert(tx != NULL);
+    pthread_mutex_lock(&wallet->lock);
+
+    for (size_t i = 0; tx && i < tx->outCount; i++) {
+        if (!_BRWalletDigiDollarAddressForOutput(&address, &tx->outputs[i]) ||
+            !BRSetContains(wallet->allAddrs, &address)) continue;
+        if (BRDigiDollarTxOutputAmount(&outputAmount, tx, i)) amount += outputAmount;
+    }
+
+    pthread_mutex_unlock(&wallet->lock);
+    return amount;
+}
+
 // returns the amount sent from the wallet by the trasaction (total wallet outputs consumed, change and fee included)
 uint64_t BRWalletAmountSentByTx(BRWallet *wallet, const BRTransaction *tx)
 {
@@ -1148,6 +1273,28 @@ uint64_t BRWalletAmountSentByTx(BRWallet *wallet, const BRTransaction *tx)
         }
     }
     
+    pthread_mutex_unlock(&wallet->lock);
+    return amount;
+}
+
+uint64_t BRWalletDigiDollarAmountSentByTx(BRWallet *wallet, const BRTransaction *tx)
+{
+    uint64_t amount = 0, outputAmount = 0;
+
+    assert(wallet != NULL);
+    assert(tx != NULL);
+    pthread_mutex_lock(&wallet->lock);
+
+    for (size_t i = 0; tx && i < tx->inCount; i++) {
+        BRTransaction *t = BRSetGet(wallet->allTx, &tx->inputs[i].txHash);
+        uint32_t n = tx->inputs[i].index;
+
+        if (t && n < t->outCount && _BRWalletOutputMatchesDigiDollarAddress(wallet, &t->outputs[n]) &&
+            BRDigiDollarTxOutputAmount(&outputAmount, t, n)) {
+            amount += outputAmount;
+        }
+    }
+
     pthread_mutex_unlock(&wallet->lock);
     return amount;
 }
@@ -1193,6 +1340,25 @@ uint64_t BRWalletBalanceAfterTx(BRWallet *wallet, const BRTransaction *tx)
     for (size_t i = array_count(wallet->transactions); tx && i > 0; i--) {
         if (! BRTransactionEq(tx, wallet->transactions[i - 1])) continue;
         balance = wallet->balanceHist[i - 1];
+        break;
+    }
+
+    pthread_mutex_unlock(&wallet->lock);
+    return balance;
+}
+
+uint64_t BRWalletDigiDollarBalanceAfterTx(BRWallet *wallet, const BRTransaction *tx)
+{
+    uint64_t balance;
+
+    assert(wallet != NULL);
+    assert(tx != NULL && BRTransactionIsSigned(tx));
+    pthread_mutex_lock(&wallet->lock);
+    balance = wallet->digiDollarBalance;
+
+    for (size_t i = array_count(wallet->transactions); tx && i > 0; i--) {
+        if (! BRTransactionEq(tx, wallet->transactions[i - 1])) continue;
+        balance = wallet->digiDollarBalanceHist[i - 1];
         break;
     }
 
@@ -1305,6 +1471,7 @@ void BRWalletFree(BRWallet *wallet)
     array_free(wallet->internalChainDigiDollar);
     array_free(wallet->externalChainDigiDollar);
     array_free(wallet->balanceHist);
+    array_free(wallet->digiDollarBalanceHist);
 
     for (size_t i = array_count(wallet->transactions); i > 0; i--) {
         BRTransactionFree(wallet->transactions[i - 1]);
@@ -1312,6 +1479,7 @@ void BRWalletFree(BRWallet *wallet)
 
     array_free(wallet->transactions);
     array_free(wallet->utxos);
+    array_free(wallet->digiDollarUtxos);
     pthread_mutex_unlock(&wallet->lock);
     pthread_mutex_destroy(&wallet->lock);
     free(wallet);

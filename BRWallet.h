@@ -124,6 +124,12 @@ uint64_t BRWalletTotalReceived(BRWallet *wallet);
 // writes unspent outputs to utxos and returns the number of outputs written, or number available if utxos is NULL
 size_t BRWalletUTXOs(BRWallet *wallet, BRUTXO utxos[], size_t utxosCount);
 
+// current DigiDollar balance in cents, not including transactions known to be invalid or pending
+uint64_t BRWalletDigiDollarBalance(BRWallet *wallet);
+
+// writes unspent DigiDollar token outputs to utxos and returns the number available if utxos is NULL
+size_t BRWalletDigiDollarUTXOs(BRWallet *wallet, BRDigiDollarUTXO utxos[], size_t utxosCount);
+
 // fee-per-kb of transaction size to use when creating a transaction
 uint64_t BRWalletFeePerKb(BRWallet *wallet);
 void BRWalletSetFeePerKb(BRWallet *wallet, uint64_t feePerKb);
@@ -174,14 +180,26 @@ void BRWalletSetTxUnconfirmedAfter(BRWallet *wallet, uint32_t blockHeight);
 // returns the amount received by the wallet from the transaction (total outputs to change and/or receive addresses)
 uint64_t BRWalletAmountReceivedFromTx(BRWallet *wallet, const BRTransaction *tx);
 
+// returns DigiDollar cents received by the wallet from the transaction
+uint64_t BRWalletDigiDollarAmountReceivedFromTx(BRWallet *wallet, const BRTransaction *tx);
+
 // returns the amount sent from the wallet by the trasaction (total wallet outputs consumed, change and fee included)
 uint64_t BRWalletAmountSentByTx(BRWallet *wallet, const BRTransaction *tx);
+
+// returns DigiDollar cents sent by the wallet from the transaction
+uint64_t BRWalletDigiDollarAmountSentByTx(BRWallet *wallet, const BRTransaction *tx);
 
 // returns the fee for the given transaction if all its inputs are from wallet transactions, UINT64_MAX otherwise
 uint64_t BRWalletFeeForTx(BRWallet *wallet, const BRTransaction *tx);
 
 // historical wallet balance after the given transaction, or current balance if transaction is not registered in wallet
 uint64_t BRWalletBalanceAfterTx(BRWallet *wallet, const BRTransaction *tx);
+
+// historical DigiDollar balance in cents after the given transaction
+uint64_t BRWalletDigiDollarBalanceAfterTx(BRWallet *wallet, const BRTransaction *tx);
+
+// true if the output is a wallet-owned DigiDollar token output
+int BRWalletDigiDollarOutputIsMine(BRWallet *wallet, const BRTxOutput *output);
 
 // fee that will be added for a transaction of the given size in bytes
 uint64_t BRWalletFeeForTxSize(BRWallet *wallet, size_t size);

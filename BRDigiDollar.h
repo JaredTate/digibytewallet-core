@@ -42,6 +42,14 @@ typedef enum {
 } BRDigiDollarNetwork;
 
 typedef struct {
+    UInt256 hash;
+    uint32_t n;
+    uint64_t amountCents;
+    uint32_t blockHeight;
+    uint8_t ownerXOnlyPubKey[BR_DIGIDOLLAR_XONLY_KEY_LENGTH];
+} BRDigiDollarUTXO;
+
+typedef struct {
     BRDigiDollarTxType type;
     uint64_t amounts[BR_DIGIDOLLAR_MAX_AMOUNT_COUNT];
     size_t amountCount;
@@ -76,6 +84,7 @@ size_t BRDigiDollarBuildRedeemOpReturn(uint8_t *script, size_t scriptLen, uint64
 
 int BRDigiDollarParseOpReturn(BRDigiDollarOpReturn *metadata, const uint8_t *script, size_t scriptLen);
 int BRDigiDollarTxFindOpReturn(const BRTransaction *tx, BRDigiDollarOpReturn *metadata, size_t *outputIndex);
+int BRDigiDollarTxOutputAmount(uint64_t *amountCents, const BRTransaction *tx, size_t outputIndex);
 
 size_t BRDigiDollarLockTierCount(void);
 uint64_t BRDigiDollarLockTierBlocks(size_t tier);

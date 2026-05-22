@@ -410,6 +410,50 @@ int BRDigiDollarTxFindOpReturn(const BRTransaction *tx, BRDigiDollarOpReturn *me
     return 1;
 }
 
+int BRDigiDollarTxOutputAmount(uint64_t *amountCents, const BRTransaction *tx, size_t outputIndex)
+{
+    BRDigiDollarOpReturn metadata;
+    BRDigiDollarTxType type;
+    size_t tokenIndex = 0;
+    size_t tokenCount = 0;
+
+    if (amountCents) *amountCents = 0;
+    if (!tx || outputIndex >= tx->outCount) return 0;
+    if (!BRDigiDollarOutputIsP2TR(&tx->outputs[outputIndex]) || tx->outputs[outputIndex].amount != 0) return 0;
+
+    type = BRDigiDollarTypeForTx(tx);
+    if (type == BRDigiDollarTxNone) return 0;
+    if (!BRDigiDollarTxFindOpReturn(tx, &metadata, NULL) || metadata.type != type) return 0;
+
+    for (size_t i = 0; i < tx->outCount; i++) {
+        if (!BRDigiDollarOutputIsP2TR(&tx->outputs[i]) || tx->outputs[i].amount != 0) continue;
+        if (i == outputIndex) tokenIndex = tokenCount;
+        tokenCount++;
+    }
+
+    switch (type) {
+        case BRDigiDollarTxMint:
+            if (metadata.amountCount != 1 || tokenCount != 1 || outputIndex != 1) return 0;
+            if (amountCents) *amountCents = metadata.amounts[0];
+            return 1;
+
+        case BRDigiDollarTxTransfer:
+            if (metadata.amountCount != tokenCount || tokenIndex >= metadata.amountCount) return 0;
+            if (amountCents) *amountCents = metadata.amounts[tokenIndex];
+            return 1;
+
+        case BRDigiDollarTxRedeem:
+            if (metadata.amountCount != 1 || tokenCount != 1 || tokenIndex != 0) return 0;
+            if (amountCents) *amountCents = metadata.amounts[0];
+            return 1;
+
+        case BRDigiDollarTxNone:
+            return 0;
+    }
+
+    return 0;
+}
+
 size_t BRDigiDollarLockTierCount(void)
 {
     return sizeof(BRDigiDollarLockTiers)/sizeof(*BRDigiDollarLockTiers);

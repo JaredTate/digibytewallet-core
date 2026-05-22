@@ -336,6 +336,8 @@ static void _BRPeerManagerLoadBloomFilter(BRPeerManager *manager, BRPeer *peer) 
     BRAddress *addrs = malloc(addrsCount * sizeof(*addrs));
     size_t utxosCount = BRWalletUTXOs(manager->wallet, NULL, 0);
     BRUTXO *utxos = malloc(utxosCount * sizeof(*utxos));
+    size_t digiDollarUtxosCount = BRWalletDigiDollarUTXOs(manager->wallet, NULL, 0);
+    BRDigiDollarUTXO *digiDollarUtxos = malloc(digiDollarUtxosCount * sizeof(*digiDollarUtxos));
     uint32_t blockHeight = (manager->lastBlock->height > 100) ? manager->lastBlock->height - 100 : 0;
     size_t txCount = BRWalletTxUnconfirmedBefore(manager->wallet, NULL, 0, blockHeight);
     BRTransaction **transactions = malloc(txCount * sizeof(*transactions));
@@ -343,11 +345,14 @@ static void _BRPeerManagerLoadBloomFilter(BRPeerManager *manager, BRPeer *peer) 
 
     assert(addrs != NULL);
     assert(utxos != NULL);
+    assert(digiDollarUtxos != NULL || digiDollarUtxosCount == 0);
     assert(transactions != NULL);
     addrsCount = BRWalletAllAddrs(manager->wallet, addrs, addrsCount);
     utxosCount = BRWalletUTXOs(manager->wallet, utxos, utxosCount);
+    digiDollarUtxosCount = BRWalletDigiDollarUTXOs(manager->wallet, digiDollarUtxos, digiDollarUtxosCount);
     txCount = BRWalletTxUnconfirmedBefore(manager->wallet, transactions, txCount, blockHeight);
-    filter = BRBloomFilterNew(manager->fpRate, addrsCount + utxosCount + txCount + 100, (uint32_t) BRPeerHash(peer),
+    filter = BRBloomFilterNew(manager->fpRate, addrsCount + utxosCount + digiDollarUtxosCount + txCount + 100,
+                              (uint32_t) BRPeerHash(peer),
                               BLOOM_UPDATE_ALL); // BUG: XXX txCount not the same as number of spent wallet outputs
 
     for (size_t i = 0; i < addrsCount; i++) { // add addresses to watch for tx receiveing money to the wallet
@@ -377,6 +382,16 @@ static void _BRPeerManagerLoadBloomFilter(BRPeerManager *manager, BRPeer *peer) 
 
     free(utxos);
 
+    for (size_t i = 0; i < digiDollarUtxosCount; i++) {
+        uint8_t o[sizeof(UInt256) + sizeof(uint32_t)];
+
+        UInt256Set(o, digiDollarUtxos[i].hash);
+        UInt32SetLE(&o[sizeof(UInt256)], digiDollarUtxos[i].n);
+        if (!BRBloomFilterContainsData(filter, o, sizeof(o))) BRBloomFilterInsertData(filter, o, sizeof(o));
+    }
+
+    free(digiDollarUtxos);
+
     for (size_t i = 0; i < txCount; i++) { // also add TXOs spent within the last 100 blocks
         for (size_t j = 0; j < transactions[i]->inCount; j++) {
             BRTxInput *input = &transactions[i]->inputs[j];
@@ -384,7 +399,8 @@ static void _BRPeerManagerLoadBloomFilter(BRPeerManager *manager, BRPeer *peer) 
             uint8_t o[sizeof(UInt256) + sizeof(uint32_t)];
 
             if (tx && input->index < tx->outCount &&
-                BRWalletContainsAddress(manager->wallet, tx->outputs[input->index].address)) {
+                (BRWalletContainsAddress(manager->wallet, tx->outputs[input->index].address) ||
+                 BRWalletDigiDollarOutputIsMine(manager->wallet, &tx->outputs[input->index]))) {
                 UInt256Set(o, input->txHash);
                 UInt32SetLE(&o[sizeof(UInt256)], input->index);
                 if (!BRBloomFilterContainsData(filter, o, sizeof(o))) BRBloomFilterInsertData(filter, o, sizeof(o));
